@@ -102,7 +102,6 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   <div class="brand">Lilen <small>· recibos</small></div>
   <nav id="nav" class="hide">
     <button data-v="tablero">Tablero</button>
-    <button data-v="firmar">Firmar</button>
     <button data-v="cargar">Cargar</button>
     <button data-v="empleadas">Empleadas</button>
     <button data-v="exportar">Exportar</button>
@@ -126,7 +125,7 @@ const MES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto'
 const TIPOS = {mensual:'Mensual', sac:'Aguinaldo (SAC)', vacaciones:'Vacaciones', final:'Liquidación final', otro:'Otro'};
 const ESTADOS = {falta:'Sin cargar', pendiente:'Pendiente', firmado:'Firmado', firmado_papel:'Firmado en papel'};
 
-let S = { email:null, emps:[], recs:[], pins:{}, view:'tablero', firma:null };
+let S = { email:null, emps:[], recs:[], view:'tablero', firma:null };
 const app = document.getElementById('app');
 const dlg = document.getElementById('dlg');
 
@@ -160,7 +159,11 @@ async function init(){
   if(!session) return vistaLogin();
   S.email = session.user.email;
   const { data:esAdmin } = await sb.rpc('es_admin');
-  if(!esAdmin){ app.innerHTML = `<div class="card"><h2>Sin acceso</h2><p>El usuario ${esc(S.email)} no es administrador.</p><button class="btn" onclick="salir()">Salir</button></div>`; return; }
+  if(!esAdmin){
+    const { data:yo } = await sb.rpc('rec_mi_empleada');
+    if(yo) return vMisRecibos(yo);
+    app.innerHTML = `<div class="card"><h2>Sin acceso</h2><p>La cuenta ${esc(S.email)} no tiene recibos asociados.</p><button class="btn" onclick="salir()">Salir</button></div>`; return;
+  }
   document.getElementById('nav').classList.remove('hide');
   await cargarDatos();
   ir(S.view);
@@ -168,7 +171,7 @@ async function init(){
 function vistaLogin(){
   document.getElementById('nav').classList.add('hide');
   app.innerHTML = `<div class="card" style="max-width:380px;margin:40px auto">
-    <h2>Entrar</h2><p class="muted">Usá la misma cuenta de la caja.</p>
+    <h2>Entrar</h2>
     <form id="fl" class="row" style="flex-direction:column;align-items:stretch">
       <label class="f">Email<input type="email" name="e" required autocomplete="username"></label>
       <label class="f">Contraseña<input type="password" name="p" required autocomplete="current-password"></label>
@@ -184,22 +187,20 @@ async function salir(){ await sb.auth.signOut(); S = { ...S, email:null, emps:[]
 
 async function cargarDatos(){
   const [e, r] = await Promise.all([
-    sb.from('rec_empleadas').select('id,nombre,cuil,activa,ingreso,egreso,creado').order('nombre'),
+    sb.from('rec_empleadas').select('id,nombre,cuil,email,activa,ingreso,egreso,creado').order('nombre'),
     sb.from('rec_recibos').select('*').order('periodo')
   ]);
   if(e.error) throw e.error; if(r.error) throw r.error;
   S.emps = e.data; S.recs = r.data;
-  const pins = await Promise.all(S.emps.map(x => sb.rpc('rec_tiene_pin', { p_empleada:x.id })));
-  S.pins = {}; S.emps.forEach((x,i) => S.pins[x.id] = !!pins[i].data);
 }
 
 function ir(v){
   S.view = v;
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
-  ({tablero:vTablero, firmar:vFirmar, cargar:vCargar, empleadas:vEmpleadas, exportar:vExportar})[v]();
+  ({tablero:vTablero, cargar:vCargar, empleadas:vEmpleadas, exportar:vExportar})[v]();
   window.scrollTo(0,0);
 }
-document.querySelectorAll('#nav button').forEach(b => b.onclick = () => { if(S.firma && !confirm('¿Salir del modo firma?')) return; S.firma = null; ir(b.dataset.v); });
+document.querySelectorAll('#nav button').forEach(b => b.onclick = () => ir(b.dataset.v));
 
 // ===== Tablero =====
 function rangoEmp(e){
@@ -229,7 +230,7 @@ function vTablero(){
     }).join('');
     const nPend = S.recs.filter(r => r.empleada_id===e.id && r.estado==='pendiente').length;
     return `<div class="card"><div class="row"><h3 class="grow">${esc(e.nombre)}</h3>
-      ${nPend ? `<button class="btn pri" onclick="empezarFirma('${e.id}')">Firmar ${nPend} pendiente${nPend>1?'s':''}</button>` : ''}</div>
+      ${!e.email ? '<span class="st-err" style="font-size:.85rem">Sin cuenta: no puede firmar</span>' : nPend ? `<span class="muted" style="font-size:.85rem">${nPend} por firmar</span>` : ''}</div>
       <div class="chips">${chips}</div>${otros ? `<p class="muted" style="margin:12px 0 0;font-size:.85rem">Otros recibos</p><div class="chips">${otros}</div>` : ''}</div>`;
   }).join('');
   app.innerHTML = `<div class="stats">
@@ -257,8 +258,7 @@ function detalle(eid, p, tipo){
       <div class="row" style="margin-top:14px">
         ${r.firmado_pdf_path?`<button class="btn pri" data-open="${esc(r.firmado_pdf_path)}">Ver firmado</button>`:''}
         ${r.firmado_pdf_path!==r.pdf_path?`<button class="btn" data-open="${esc(r.pdf_path)}">Ver original</button>`:''}
-        ${r.estado==='pendiente'?`<button class="btn pri" id="d-firmar">Firmar ahora</button>
-          <button class="btn" id="d-papel">Subir firmado en papel</button>
+        ${r.estado==='pendiente'?`<button class="btn" id="d-papel">Subir firmado en papel</button>
           <button class="btn danger" id="d-borrar">Borrar</button>`:''}
       </div>`;
   }
@@ -268,7 +268,6 @@ function detalle(eid, p, tipo){
   dlg.querySelectorAll('[data-open]').forEach(b => b.onclick = () => abrirArchivo(b.dataset.open));
   const q = id => dlg.querySelector(id);
   if(q('#d-cargar')) q('#d-cargar').onclick = () => { dlg.close(); S.prefill = { emp:eid, periodo:p }; ir('cargar'); };
-  if(q('#d-firmar')) q('#d-firmar').onclick = () => { dlg.close(); empezarFirma(eid, r.id); };
   if(q('#d-borrar')) q('#d-borrar').onclick = async () => {
     if(!confirm('¿Borrar este recibo pendiente?')) return;
     const { error } = await sb.from('rec_recibos').delete().eq('id', r.id);
@@ -300,20 +299,20 @@ function vEmpleadas(){
   const filas = S.emps.map(e => `<tr>
     <td><b>${esc(e.nombre)}</b><br><span class="muted">${esc(e.cuil||'sin CUIL')}</span></td>
     <td>${e.ingreso?e.ingreso.split('-').reverse().join('/'):'—'}</td>
-    <td>${S.pins[e.id]?'<span class="st-ok">PIN listo</span>':'<span class="st-err">Sin PIN</span>'}</td>
+    <td>${e.email?esc(e.email):'<span class="st-err">Sin mail</span>'}</td>
     <td>${e.activa?'Activa':'<span class="muted">Inactiva</span>'}</td>
-    <td style="text-align:right;white-space:nowrap"><button class="btn" data-pin="${e.id}">PIN</button> <button class="btn" data-ed="${e.id}">Editar</button></td></tr>`).join('');
+    <td style="text-align:right;white-space:nowrap"><button class="btn" data-ed="${e.id}">Editar</button></td></tr>`).join('');
   app.innerHTML = `<div class="card"><h2>Empleadas</h2>
-    ${S.emps.length?`<div class="tablewrap"><table><tr><th>Nombre</th><th>Ingreso</th><th>PIN</th><th>Estado</th><th></th></tr>${filas}</table></div>`:'<p class="muted">Todavía no hay empleadas.</p>'}
+    ${S.emps.length?`<div class="tablewrap"><table><tr><th>Nombre</th><th>Ingreso</th><th>Cuenta</th><th>Estado</th><th></th></tr>${filas}</table></div>`:'<p class="muted">Todavía no hay empleadas.</p>'}
     <p style="margin-top:14px"><button class="btn pri" id="nueva">+ Nueva empleada</button></p></div>
-    <div class="card muted" style="font-size:.9rem">El PIN lo elige y lo escribe cada empleada, sin que nadie lo vea. Es lo que prueba que la firma la hizo ella. Si alguna se lo olvida, se lo cambia acá.</div>`;
+    <div class="card muted" style="font-size:.9rem">Cada empleada entra con su propio mail y contraseña, y solo ve sus recibos. El mail que pongas acá tiene que ser el mismo con el que se crea su usuario.</div>`;
   document.getElementById('nueva').onclick = () => formEmp();
   app.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => formEmp(empById(b.dataset.ed)));
-  app.querySelectorAll('[data-pin]').forEach(b => b.onclick = () => formPin(empById(b.dataset.pin)));
 }
 function formEmp(e){
   dlg.innerHTML = `<h2>${e?'Editar':'Nueva'} empleada</h2><form id="fe" class="row" style="flex-direction:column;align-items:stretch">
     <label class="f">Nombre y apellido<input type="text" name="nombre" required value="${esc(e?.nombre)}"></label>
+    <label class="f">Mail de su cuenta<input type="email" name="email" placeholder="nombre@gmail.com" value="${esc(e?.email)}"></label>
     <label class="f">CUIL<input type="text" name="cuil" inputmode="numeric" placeholder="27-12345678-9" value="${esc(e?.cuil)}"></label>
     <div class="row"><label class="f grow">Fecha de ingreso<input type="date" name="ingreso" value="${e?.ingreso||''}"></label>
     <label class="f grow">Fecha de egreso<input type="date" name="egreso" value="${e?.egreso||''}"></label></div>
@@ -322,30 +321,13 @@ function formEmp(e){
   dlg.showModal();
   dlg.querySelector('#fe').onsubmit = async ev => {
     ev.preventDefault(); const f = ev.target;
-    const row = { nombre:f.nombre.value.trim(), cuil:f.cuil.value.trim()||null, ingreso:f.ingreso.value||null, egreso:f.egreso.value||null };
+    const row = { nombre:f.nombre.value.trim(), email:f.email.value.trim().toLowerCase()||null, cuil:f.cuil.value.trim()||null, ingreso:f.ingreso.value||null, egreso:f.egreso.value||null };
     if(e) row.activa = f.activa.checked;
     const q = e ? sb.from('rec_empleadas').update(row).eq('id', e.id) : sb.from('rec_empleadas').insert(row);
     const { error } = await q; if(error) return toast(errMsg(error));
     dlg.close(); await cargarDatos(); vEmpleadas(); toast('Guardado');
   };
 }
-function formPin(e){
-  dlg.innerHTML = `<h2>PIN de ${esc(e.nombre)}</h2><p class="muted">Pasale el celu o la tablet para que lo escriba ella. De 4 a 6 números.</p>
-    <form id="fp" class="row" style="flex-direction:column;align-items:center">
-    <input class="pin" type="password" name="a" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="PIN" required autocomplete="off">
-    <input class="pin" type="password" name="b" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="Repetir" required autocomplete="off">
-    <p id="pe" class="st-err"></p>
-    <div class="row"><button class="btn pri">Guardar PIN</button><button type="button" class="btn" onclick="dlg.close()">Cancelar</button></div></form>`;
-  dlg.showModal();
-  dlg.querySelector('#fp').onsubmit = async ev => {
-    ev.preventDefault(); const f = ev.target;
-    if(f.a.value !== f.b.value){ dlg.querySelector('#pe').textContent = 'No coinciden'; return; }
-    const { error } = await sb.rpc('rec_set_pin', { p_empleada:e.id, p_pin:f.a.value });
-    if(error){ dlg.querySelector('#pe').textContent = errMsg(error); return; }
-    dlg.close(); S.pins[e.id] = true; vEmpleadas(); toast('PIN guardado');
-  };
-}
-
 // ===== Cargar =====
 let cola = [];
 function periodoDeNombre(n){
@@ -430,37 +412,33 @@ async function subirCola(){
   const n = cola.filter(c=>c.st==='ok').length; toast(`${n} recibo(s) subidos`);
 }
 
-// ===== Firmar =====
-function vFirmar(){
-  const conPend = S.emps.map(e => ({ e, n:S.recs.filter(r => r.empleada_id===e.id && r.estado==='pendiente').length })).filter(x => x.n);
-  app.innerHTML = `<div class="card"><h2>Modo firma</h2><p class="muted">Elegí quién va a firmar. Después le pasás el dispositivo.</p>
-    ${conPend.length ? `<div class="empbtns">${conPend.map(x=>`<button class="btn big" data-e="${x.e.id}">${esc(x.e.nombre)}<br><small class="muted">${x.n} pendiente${x.n>1?'s':''}</small></button>`).join('')}</div>` : '<p>No hay recibos pendientes 🎉</p>'}</div>`;
-  app.querySelectorAll('[data-e]').forEach(b => b.onclick = () => empezarFirma(b.dataset.e));
+// ===== Vista de la empleada (cuenta propia) =====
+let YO = null;
+async function vMisRecibos(id){
+  document.getElementById('nav').classList.add('hide');
+  const [e, r] = await Promise.all([
+    sb.from('rec_empleadas').select('id,nombre,cuil,email').eq('id', id).single(),
+    sb.from('rec_recibos').select('*').eq('empleada_id', id).order('periodo')
+  ]);
+  if(e.error) throw e.error; if(r.error) throw r.error;
+  YO = e.data; S.recs = r.data;
+  const pend = S.recs.filter(x => x.estado==='pendiente');
+  const hechos = S.recs.filter(x => x.estado!=='pendiente').reverse();
+  app.innerHTML = `<div class="card"><div class="row"><h2 class="grow">Hola, ${esc(YO.nombre.split(' ')[0])}</h2><button class="btn" onclick="salir()">Salir</button></div>
+      ${pend.length ? `<p>Tenés <b>${pend.length}</b> recibo${pend.length>1?'s':''} para firmar.</p><button class="btn pri big" id="arrancar">Empezar a firmar</button>`
+                    : '<p>No tenés recibos pendientes.</p>'}</div>
+    ${hechos.length ? `<div class="card"><h2>Mis recibos</h2><div class="tablewrap"><table>
+      ${hechos.map(x => `<tr><td>${TIPOS[x.tipo]} · ${pLong(x.periodo)}</td><td>${ESTADOS[x.estado]}${x.conformidad==='disconforme'?' (disconforme)':''}</td>
+        <td style="text-align:right"><button class="btn" data-open="${esc(x.firmado_pdf_path)}">Ver</button></td></tr>`).join('')}
+    </table></div></div>` : ''}`;
+  app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => abrirArchivo(b.dataset.open));
+  if(pend.length) document.getElementById('arrancar').onclick = () => { S.firma = { pend, i:0, hechos:0 }; pantallaRecibo(); };
 }
-function empezarFirma(eid, primero){
-  const e = empById(eid);
-  if(!S.pins[eid]){ toast(`${e.nombre} no tiene PIN. Cargáselo en Empleadas.`, 3500); ir('empleadas'); return; }
-  let pend = S.recs.filter(r => r.empleada_id===eid && r.estado==='pendiente');
-  if(primero) pend = [pend.find(r=>r.id===primero), ...pend.filter(r=>r.id!==primero)].filter(Boolean);
-  S.firma = { e, pend, i:0, pin:null, hechos:0 };
-  S.view = 'firmar'; document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v==='firmar'));
-  app.innerHTML = `<div class="card" style="text-align:center"><h2>Hola, ${esc(e.nombre.split(' ')[0])}</h2>
-    <p>Tenés <b>${pend.length}</b> recibo${pend.length>1?'s':''} para firmar. Ingresá tu PIN.</p>
-    <form id="fpin" class="row" style="flex-direction:column;align-items:center">
-      <input class="pin" type="password" name="p" inputmode="numeric" maxlength="6" required autocomplete="off" autofocus>
-      <p id="pe" class="st-err"></p><button class="btn pri big">Continuar</button></form>
-    <p><button class="btn" onclick="S.firma=null;ir('firmar')">Cancelar</button></p></div>`;
-  document.getElementById('fpin').onsubmit = async ev => {
-    ev.preventDefault(); const pin = ev.target.p.value;
-    const { data, error } = await sb.rpc('rec_verificar_pin', { p_empleada:eid, p_pin:pin });
-    if(error || !data){ document.getElementById('pe').textContent = 'PIN incorrecto'; ev.target.p.value=''; return; }
-    S.firma.pin = pin; pantallaRecibo();
-  };
-}
+
 async function pantallaRecibo(){
   const F = S.firma; const r = F.pend[F.i];
-  if(!r){ app.innerHTML = `<div class="card" style="text-align:center"><h2>¡Listo!</h2><p>Firmaste ${F.hechos} recibo${F.hechos!==1?'s':''}. Ya podés devolver el dispositivo.</p>
-    <button class="btn pri" onclick="S.firma=null;ir('tablero')">Volver al tablero</button></div>`; return; }
+  if(!r){ app.innerHTML = `<div class="card" style="text-align:center"><h2>¡Listo!</h2><p>Firmaste ${F.hechos} recibo${F.hechos!==1?'s':''}.</p>
+    <button class="btn pri" onclick="S.firma=null;vMisRecibos(YO.id)">Ver mis recibos</button></div>`; return; }
   app.innerHTML = `<div class="card"><div class="row"><h2 class="grow">${TIPOS[r.tipo]} · ${pLong(r.periodo)}</h2><span class="muted">${F.i+1} de ${F.pend.length}</span></div>
     <div class="pdfview" id="pv"><p style="color:#fff">Cargando recibo…</p></div></div>
     <div class="card">
@@ -473,15 +451,13 @@ async function pantallaRecibo(){
       <p style="margin:14px 0 6px">Firmá acá con el dedo</p>
       <div class="sigwrap"><canvas id="sig"></canvas><span class="ph" id="sigph">Firma</span></div>
       <div class="row" style="margin-top:12px"><button class="btn" id="sigclr">Borrar firma</button><span class="grow"></span>
-        <button class="btn" onclick="if(confirm('¿Dejar de firmar? Lo que falte queda pendiente.')){S.firma=null;ir('tablero')}">Salir</button>
+        <button class="btn" onclick="if(confirm('¿Dejar para después? Lo que falte queda pendiente.')){S.firma=null;vMisRecibos(YO.id)}">Después</button>
         <button class="btn pri big" id="ok" disabled>Firmar recibo</button></div>
       <p id="fe" class="st-err"></p></div>`;
-  // PDF
   let bytes;
   try {
     const blob = await bajar(r.pdf_path); bytes = await blob.arrayBuffer();
-    const h = await sha256(bytes);
-    if(h !== r.pdf_sha256) throw new Error('El archivo no coincide con el que se cargó (huella distinta). No firmar.');
+    if(await sha256(bytes) !== r.pdf_sha256) throw new Error('El archivo no coincide con el que se cargó. Avisale a la encargada.');
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
     const pv = document.getElementById('pv'); pv.innerHTML = '';
     for(let n=1;n<=pdf.numPages;n++){
@@ -490,14 +466,13 @@ async function pantallaRecibo(){
       await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
     }
   } catch(e){ document.getElementById('pv').innerHTML = `<p style="color:#fff">No se pudo mostrar: ${esc(errMsg(e))}</p>`; return; }
-  // Firma
   const cv = document.getElementById('sig'); const ctx = cv.getContext('2d'); let trazos = 0, dib = false;
-  const ajustar = () => { const d = window.devicePixelRatio||1; cv.width = cv.clientWidth*d; cv.height = cv.clientHeight*d; ctx.setTransform(d,0,0,d,0,0); ctx.lineWidth = 2.4; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#111'; trazos=0; chk(); };
+  const d = window.devicePixelRatio||1; cv.width = cv.clientWidth*d; cv.height = cv.clientHeight*d; ctx.setTransform(d,0,0,d,0,0);
+  ctx.lineWidth = 2.4; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#111';
   const pos = ev => { const b = cv.getBoundingClientRect(); return [ev.clientX-b.left, ev.clientY-b.top]; };
   cv.onpointerdown = ev => { dib = true; cv.setPointerCapture(ev.pointerId); ctx.beginPath(); ctx.moveTo(...pos(ev)); };
   cv.onpointermove = ev => { if(!dib) return; ctx.lineTo(...pos(ev)); ctx.stroke(); };
   cv.onpointerup = cv.onpointercancel = () => { if(dib){ trazos++; document.getElementById('sigph').classList.add('hide'); chk(); } dib = false; };
-  ajustar();
   document.getElementById('sigclr').onclick = () => { ctx.clearRect(0,0,cv.width,cv.height); document.getElementById('sigph').classList.remove('hide'); trazos = 0; chk(); };
   const conf = () => app.querySelector('input[name=conf]:checked').value;
   app.querySelectorAll('input[name=conf]').forEach(x => x.onchange = () => { document.getElementById('obsw').classList.toggle('hide', conf()!=='disconforme'); chk(); });
@@ -509,13 +484,13 @@ async function pantallaRecibo(){
     const b = document.getElementById('ok'); b.disabled = true; b.textContent = 'Firmando…';
     try {
       const firmaBlob = await new Promise(res => cv.toBlob(res, 'image/png'));
-      await firmarRecibo(r, F.e, F.pin, conf(), document.getElementById('obs').value, firmaBlob, bytes);
-      F.hechos++; F.i++; await cargarDatos(); toast('Recibo firmado ✓'); pantallaRecibo();
+      await firmarRecibo(r, YO, conf(), document.getElementById('obs').value, firmaBlob, bytes);
+      F.hechos++; F.i++; toast('Recibo firmado ✓'); pantallaRecibo();
     } catch(e){ document.getElementById('fe').textContent = 'No se pudo firmar: ' + errMsg(e); b.disabled = false; b.textContent = 'Firmar recibo'; }
   };
 }
 
-async function firmarRecibo(r, e, pin, conformidad, obs, firmaBlob, origBytes){
+async function firmarRecibo(r, e, conformidad, obs, firmaBlob, origBytes){
   const { PDFDocument, StandardFonts, rgb } = PDFLib;
   const ahora = new Date(); const ua = navigator.userAgent;
   const doc = await PDFDocument.load(origBytes, { ignoreEncryption:true });
@@ -535,16 +510,15 @@ async function firmarRecibo(r, e, pin, conformidad, obs, firmaBlob, origBytes){
   if(conformidad==='disconforme' && obs.trim()) linea(`Observación de la trabajadora: ${obs.trim()}`);
   y -= 8;
   linea(`Fecha y hora de firma: ${fmtFecha(ahora)} (hora de Buenos Aires, según el dispositivo; el registro del servidor queda en la base de datos)`);
-  linea('Identificación: PIN personal de la trabajadora, validado por el sistema al momento de firmar.');
-  linea(`Sesión del sistema: ${S.email}`);
+  linea(`Identificación: ingreso con cuenta personal de la trabajadora (${S.email}) y su contraseña.`);
   linea(`Dispositivo: ${ua}`, { size:8.5 });
   linea('Huella SHA-256 del recibo original (páginas anteriores):', { after:0 });
   linea(r.pdf_sha256, { size:8.5, after:16 });
   linea('Firma de la trabajadora:', { bold:true, after:4 });
   const png = await doc.embedPng(await firmaBlob.arrayBuffer());
-  const esc2 = Math.min(260/png.width, 110/png.height);
-  page.drawImage(png, { x:X, y:y-png.height*esc2, width:png.width*esc2, height:png.height*esc2 });
-  y -= png.height*esc2 + 6;
+  const k = Math.min(260/png.width, 110/png.height);
+  page.drawImage(png, { x:X, y:y-png.height*k, width:png.width*k, height:png.height*k });
+  y -= png.height*k + 6;
   page.drawLine({ start:{x:X,y}, end:{x:X+260,y}, thickness:.6, color:rgb(.4,.4,.4) }); y -= 14;
   linea(e.nombre, { size:9.5 });
   doc.setTitle(winAnsi(`Recibo ${pLong(r.periodo)} - ${e.nombre} - firmado`)); doc.setProducer('Lilen Recibos');
@@ -553,7 +527,7 @@ async function firmarRecibo(r, e, pin, conformidad, obs, firmaBlob, origBytes){
   const fPath = `firmas/${base}.png`, pPath = `firmados/${base}.pdf`;
   let up = await sb.storage.from(BUCKET).upload(fPath, firmaBlob, { contentType:'image/png' }); if(up.error) throw up.error;
   up = await sb.storage.from(BUCKET).upload(pPath, new Blob([out], {type:'application/pdf'}), { contentType:'application/pdf' }); if(up.error) throw up.error;
-  const { error } = await sb.rpc('rec_firmar', { p_recibo:r.id, p_pin:pin, p_conformidad:conformidad, p_observacion:obs||'', p_firma_path:fPath, p_firmado_pdf_path:pPath, p_firmado_sha256:hOut, p_ua:ua });
+  const { error } = await sb.rpc('rec_firmar_propio', { p_recibo:r.id, p_conformidad:conformidad, p_observacion:obs||'', p_firma_path:fPath, p_firmado_pdf_path:pPath, p_firmado_sha256:hOut, p_ua:ua });
   if(error) throw error;
 }
 
