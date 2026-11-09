@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lilen Recibos</title>
+<meta name="robots" content="noindex">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --bg:#f6f4f1; --card:#fff; --ink:#1d1b19; --muted:#6f6a64; --line:#e4dfd8;
+  --accent:#7a3e5c; --accent-ink:#fff;
+  --falta:#ece8e3; --falta-ink:#8a847d;
+  --pend:#fbe3b4; --pend-ink:#7a5410;
+  --ok:#cfeccf; --ok-ink:#1f5d26;
+  --papel:#d6e4f7; --papel-ink:#1f4778;
+  --bad:#c0392b;
+  --r:12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#171514; --card:#221f1d; --ink:#f1ede8; --muted:#a39d96; --line:#36312d;
+    --accent:#d18bb0; --accent-ink:#1d1b19;
+    --falta:#2d2926; --falta-ink:#9a938b;
+    --pend:#4a3a17; --pend-ink:#f4cf85;
+    --ok:#1f3d22; --ok-ink:#9fdca6;
+    --papel:#1d3150; --papel-ink:#a9c7f0;
+    --bad:#ef7d6f;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.top{max-width:980px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{font-weight:700;letter-spacing:.2px}
+.brand small{font-weight:400;color:var(--muted)}
+nav{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+nav button{border:0;background:none;padding:8px 12px;border-radius:999px;cursor:pointer;color:var(--muted)}
+nav button.on{background:var(--ink);color:var(--bg)}
+main{max-width:980px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px}
+h2{font-size:1.15rem;margin:0 0 12px}
+h3{font-size:1rem;margin:0}
+.muted{color:var(--muted)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grow{flex:1 1 auto}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--muted)}
+input[type=text],input[type=email],input[type=password],input[type=month],input[type=date],select,textarea{
+  background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0;width:100%}
+textarea{min-height:70px}
+.btn{border:1px solid var(--line);background:var(--card);padding:9px 14px;border-radius:8px;cursor:pointer}
+.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.big{padding:14px 18px;font-size:1.05rem}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.danger{color:var(--bad)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.stat b{display:block;font-size:1.6rem;line-height:1.1}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px;margin-top:10px}
+.chip{border:0;border-radius:8px;padding:8px 4px;font-size:.82rem;cursor:pointer;text-align:center;line-height:1.2}
+.chip small{display:block;font-size:.7rem;opacity:.8}
+.c-falta{background:var(--falta);color:var(--falta-ink)}
+.c-pendiente{background:var(--pend);color:var(--pend-ink)}
+.c-firmado{background:var(--ok);color:var(--ok-ink)}
+.c-firmado_papel{background:var(--papel);color:var(--papel-ink)}
+.c-disc{box-shadow:inset 0 0 0 2px var(--bad)}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--c)}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+td,th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.tablewrap{overflow-x:auto}
+.empbtns{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.pdfview{background:#888;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:8px;max-height:65vh;overflow:auto}
+.pdfview canvas{width:100%;height:auto;background:#fff;border-radius:4px}
+.pdfview img{width:100%;background:#fff}
+.sigwrap{border:2px dashed var(--line);border-radius:10px;background:#fff;position:relative}
+.sigwrap canvas{width:100%;height:200px;display:block;touch-action:none;border-radius:8px}
+.sigwrap .ph{position:absolute;left:12px;bottom:10px;color:#aaa;font-size:.85rem;pointer-events:none}
+.pin{letter-spacing:.5em;text-align:center;font-size:1.4rem;max-width:220px}
+.opts{display:flex;gap:10px;flex-wrap:wrap}
+.opt{flex:1 1 200px;border:2px solid var(--line);border-radius:10px;padding:12px;cursor:pointer}
+.opt input{margin-right:6px}
+.opt:has(input:checked){border-color:var(--accent)}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;z-index:50;max-width:90vw}
+dialog{border:1px solid var(--line);border-radius:var(--r);background:var(--card);color:var(--ink);width:min(520px,92vw);padding:18px}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+.drop{border:2px dashed var(--line);border-radius:var(--r);padding:22px;text-align:center;cursor:pointer}
+.drop.over{border-color:var(--accent)}
+.st-ok{color:var(--ok-ink)} .st-err{color:var(--bad)}
+.hide{display:none!important}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.9rem}
+.kv dt{color:var(--muted)} .kv dd{margin:0;word-break:break-all}
+@media (max-width:600px){ nav{margin-left:0;width:100%} nav button{flex:1;padding:8px 6px;font-size:.88rem} }
+</style>
+</head>
+<body>
+<header><div class="top">
+  <div class="brand">Lilen <small>· recibos</small></div>
+  <nav id="nav" class="hide">
+    <button data-v="tablero">Tablero</button>
+    <button data-v="firmar">Firmar</button>
+    <button data-v="cargar">Cargar</button>
+    <button data-v="empleadas">Empleadas</button>
+    <button data-v="exportar">Exportar</button>
+  </nav>
+</div></header>
+<main id="app"><p class="muted">Cargando…</p></main>
+<dialog id="dlg"></dialog>
+
+<script>
+// ===== Config =====
+const SB_URL = 'https://jqqtjygmdoadofarnbco.supabase.co';
+const SB_KEY = 'sb_publishable_5fSvvUgb3kU5zIxmQFWJHg_CKP508Do';
+const EMPRESA = 'Lilen Márquez Indumentaria';
+const INICIO = '2025-03-01';
+const BUCKET = 'recibos';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const MES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const TIPOS = {mensual:'Mensual', sac:'Aguinaldo (SAC)', vacaciones:'Vacaciones', final:'Liquidación final', otro:'Otro'};
+const ESTADOS = {falta:'Sin cargar', pendiente:'Pendiente', firmado:'Firmado', firmado_papel:'Firmado en papel'};
+
+let S = { email:null, emps:[], recs:[], pins:{}, view:'tablero', firma:null };
+const app = document.getElementById('app');
+const dlg = document.getElementById('dlg');
+
+// ===== Helpers =====
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pKey = (y,m) => `${y}-${String(m).padStart(2,'0')}-01`;
+const pLabel = p => { const [y,m] = p.split('-'); return `${MES[+m-1]} ${y.slice(2)}`; };
+const pLong = p => { const [y,m] = p.split('-'); return `${MES_L[+m-1]} ${y}`; };
+const hoyP = () => { const d = new Date(); return pKey(d.getFullYear(), d.getMonth()+1); };
+function mesesEntre(a, b){ const out=[]; let [y,m]=a.split('-').map(Number); const [by,bm]=b.split('-').map(Number);
+  while(y<by || (y===by && m<=bm)){ out.push(pKey(y,m)); m++; if(m>12){m=1;y++;} } return out; }
+function sumarMes(p, n){ let [y,m]=p.split('-').map(Number); m+=n; while(m>12){m-=12;y++;} while(m<1){m+=12;y--;} return pKey(y,m); }
+function toast(msg, ms=2600){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), ms); }
+async function sha256(buf){ const h = await crypto.subtle.digest('SHA-256', buf); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+const rnd = () => Math.random().toString(36).slice(2,8);
+const fmtFecha = d => new Date(d).toLocaleString('es-AR', {timeZone:'America/Argentina/Buenos_Aires', dateStyle:'short', timeStyle:'short'});
+const empById = id => S.emps.find(e => e.id === id);
+const errMsg = e => (e && (e.message || e.error_description)) || String(e);
+function winAnsi(s){ return String(s ?? '').normalize('NFC').replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').replace(/[\u2013\u2014]/g,'-').replace(/\u2026/g,'...').replace(/[^\x20-\x7E\xA0-\xFF]/g,''); }
+
+async function bajar(path){ const {data, error} = await sb.storage.from(BUCKET).download(path); if(error) throw error; return data; }
+async function abrirArchivo(path){
+  const w = window.open('', '_blank');
+  try { const blob = await bajar(path); const url = URL.createObjectURL(blob); if(w) w.location = url; else location.href = url; }
+  catch(e){ if(w) w.close(); toast('No se pudo abrir: ' + errMsg(e)); }
+}
+
+// ===== Auth =====
+async function init(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) return vistaLogin();
+  S.email = session.user.email;
+  const { data:esAdmin } = await sb.rpc('es_admin');
+  if(!esAdmin){ app.innerHTML = `<div class="card"><h2>Sin acceso</h2><p>El usuario ${esc(S.email)} no es administrador.</p><button class="btn" onclick="salir()">Salir</button></div>`; return; }
+  document.getElementById('nav').classList.remove('hide');
+  await cargarDatos();
+  ir(S.view);
+}
+function vistaLogin(){
+  document.getElementById('nav').classList.add('hide');
+  app.innerHTML = `<div class="card" style="max-width:380px;margin:40px auto">
+    <h2>Entrar</h2><p class="muted">Usá la misma cuenta de la caja.</p>
+    <form id="fl" class="row" style="flex-direction:column;align-items:stretch">
+      <label class="f">Email<input type="email" name="e" required autocomplete="username"></label>
+      <label class="f">Contraseña<input type="password" name="p" required autocomplete="current-password"></label>
+      <button class="btn pri">Entrar</button><p id="le" class="st-err"></p>
+    </form></div>`;
+  document.getElementById('fl').onsubmit = async ev => {
+    ev.preventDefault(); const f = ev.target;
+    const { error } = await sb.auth.signInWithPassword({ email:f.e.value.trim(), password:f.p.value });
+    if(error) document.getElementById('le').textContent = 'No pudimos entrar: ' + error.message; else init();
+  };
+}
+async function salir(){ await sb.auth.signOut(); S = { ...S, email:null, emps:[], recs:[], firma:null }; vistaLogin(); }
+
+async function cargarDatos(){
+  const [e, r] = await Promise.all([
+    sb.from('rec_empleadas').select('id,nombre,cuil,activa,ingreso,egreso,creado').order('nombre'),
+    sb.from('rec_recibos').select('*').order('periodo')
+  ]);
+  if(e.error) throw e.error; if(r.error) throw r.error;
+  S.emps = e.data; S.recs = r.data;
+  const pins = await Promise.all(S.emps.map(x => sb.rpc('rec_tiene_pin', { p_empleada:x.id })));
+  S.pins = {}; S.emps.forEach((x,i) => S.pins[x.id] = !!pins[i].data);
+}
+
+function ir(v){
+  S.view = v;
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  ({tablero:vTablero, firmar:vFirmar, cargar:vCargar, empleadas:vEmpleadas, exportar:vExportar})[v]();
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('#nav button').forEach(b => b.onclick = () => { if(S.firma && !confirm('¿Salir del modo firma?')) return; S.firma = null; ir(b.dataset.v); });
+
+// ===== Tablero =====
+function rangoEmp(e){
+  let desde = INICIO; if(e.ingreso){ const i = e.ingreso.slice(0,7)+'-01'; if(i > desde) desde = i; }
+  let hasta = sumarMes(hoyP(), -1); // el mes en curso todavía no se liquida
+  if(e.egreso){ const g = e.egreso.slice(0,7)+'-01'; if(g < hasta) hasta = g; }
+  const recsE = S.recs.filter(r => r.empleada_id === e.id && r.tipo==='mensual');
+  if(recsE.length){ const min = recsE[0].periodo, max = recsE[recsE.length-1].periodo; if(min < desde) desde = min; if(max > hasta) hasta = max; }
+  return desde <= hasta ? mesesEntre(desde, hasta) : [];
+}
+function vTablero(){
+  const activas = S.emps.filter(e => e.activa);
+  if(!S.emps.length){ app.innerHTML = `<div class="card"><h2>Arranquemos</h2><p>Primero cargá a las empleadas.</p><button class="btn pri" onclick="ir('empleadas')">Cargar empleadas</button></div>`; return; }
+  let falta=0, pend=0, ok=0, papel=0;
+  const bloques = activas.map(e => {
+    const meses = rangoEmp(e);
+    const mapa = {}; S.recs.filter(r => r.empleada_id===e.id && r.tipo==='mensual').forEach(r => mapa[r.periodo] = r);
+    const chips = meses.map(p => {
+      const r = mapa[p]; const st = r ? r.estado : 'falta';
+      if(st==='falta') falta++; else if(st==='pendiente') pend++; else if(st==='firmado') ok++; else papel++;
+      const disc = r && r.conformidad==='disconforme' ? ' c-disc' : '';
+      return `<button class="chip c-${st}${disc}" data-e="${e.id}" data-p="${p}" data-t="mensual">${pLabel(p)}<small>${ESTADOS[st]}</small></button>`;
+    }).join('');
+    const otros = S.recs.filter(r => r.empleada_id===e.id && r.tipo!=='mensual').map(r => {
+      if(r.estado==='pendiente') pend++; else if(r.estado==='firmado') ok++; else papel++;
+      return `<button class="chip c-${r.estado}" data-e="${e.id}" data-p="${r.periodo}" data-t="${r.tipo}">${TIPOS[r.tipo]}<small>${pLabel(r.periodo)}</small></button>`;
+    }).join('');
+    const nPend = S.recs.filter(r => r.empleada_id===e.id && r.estado==='pendiente').length;
+    return `<div class="card"><div class="row"><h3 class="grow">${esc(e.nombre)}</h3>
+      ${nPend ? `<button class="btn pri" onclick="empezarFirma('${e.id}')">Firmar ${nPend} pendiente${nPend>1?'s':''}</button>` : ''}</div>
+      <div class="chips">${chips}</div>${otros ? `<p class="muted" style="margin:12px 0 0;font-size:.85rem">Otros recibos</p><div class="chips">${otros}</div>` : ''}</div>`;
+  }).join('');
+  app.innerHTML = `<div class="stats">
+      <div class="stat"><b>${pend}</b><span class="muted">Pendientes de firma</span></div>
+      <div class="stat"><b>${falta}</b><span class="muted">Meses sin cargar</span></div>
+      <div class="stat"><b>${ok}</b><span class="muted">Firmados en pantalla</span></div>
+      <div class="stat"><b>${papel}</b><span class="muted">Firmados en papel</span></div></div>
+    <div class="legend" style="margin-bottom:12px">
+      <span style="--c:var(--falta)">Sin cargar</span><span style="--c:var(--pend)">Pendiente</span>
+      <span style="--c:var(--ok)">Firmado</span><span style="--c:var(--papel)">Papel</span><span style="--c:var(--bad)">Borde rojo: disconforme</span></div>
+    ${bloques}${S.emps.length>activas.length?`<p class="muted">Hay ${S.emps.length-activas.length} empleada(s) inactiva(s); sus recibos siguen en Exportar.</p>`:''}`;
+  app.querySelectorAll('.chip').forEach(c => c.onclick = () => detalle(c.dataset.e, c.dataset.p, c.dataset.t));
+}
+
+function detalle(eid, p, tipo){
+  const e = empById(eid); const r = S.recs.find(x => x.empleada_id===eid && x.periodo===p && x.tipo===tipo);
+  let body;
+  if(!r){
+    body = `<p>No hay recibo cargado para este mes.</p><div class="row"><button class="btn pri" id="d-cargar">Cargar este mes</button></div>`;
+  } else {
+    body = `<dl class="kv"><dt>Estado</dt><dd>${ESTADOS[r.estado]}${r.conformidad?` · ${r.conformidad}`:''}</dd>
+      ${r.observacion?`<dt>Observación</dt><dd>${esc(r.observacion)}</dd>`:''}
+      ${r.firmado_en?`<dt>Firmado</dt><dd>${fmtFecha(r.firmado_en)}${r.firmado_ante?` · ante ${esc(r.firmado_ante)}`:''}</dd>`:''}
+      <dt>Cargado</dt><dd>${fmtFecha(r.creado)}</dd><dt>SHA-256</dt><dd style="font-size:.75rem">${r.pdf_sha256}</dd></dl>
+      <div class="row" style="margin-top:14px">
+        ${r.firmado_pdf_path?`<button class="btn pri" data-open="${esc(r.firmado_pdf_path)}">Ver firmado</button>`:''}
+        ${r.firmado_pdf_path!==r.pdf_path?`<button class="btn" data-open="${esc(r.pdf_path)}">Ver original</button>`:''}
+        ${r.estado==='pendiente'?`<button class="btn pri" id="d-firmar">Firmar ahora</button>
+          <button class="btn" id="d-papel">Subir firmado en papel</button>
+          <button class="btn danger" id="d-borrar">Borrar</button>`:''}
+      </div>`;
+  }
+  dlg.innerHTML = `<div class="row"><h2 class="grow">${esc(e.nombre)} · ${TIPOS[tipo]} ${pLong(p)}</h2><button class="btn" id="d-x">✕</button></div>${body}`;
+  dlg.showModal();
+  dlg.querySelector('#d-x').onclick = () => dlg.close();
+  dlg.querySelectorAll('[data-open]').forEach(b => b.onclick = () => abrirArchivo(b.dataset.open));
+  const q = id => dlg.querySelector(id);
+  if(q('#d-cargar')) q('#d-cargar').onclick = () => { dlg.close(); S.prefill = { emp:eid, periodo:p }; ir('cargar'); };
+  if(q('#d-firmar')) q('#d-firmar').onclick = () => { dlg.close(); empezarFirma(eid, r.id); };
+  if(q('#d-borrar')) q('#d-borrar').onclick = async () => {
+    if(!confirm('¿Borrar este recibo pendiente?')) return;
+    const { error } = await sb.from('rec_recibos').delete().eq('id', r.id);
+    if(error) return toast(errMsg(error));
+    await sb.storage.from(BUCKET).remove([r.pdf_path]);
+    dlg.close(); await cargarDatos(); vTablero(); toast('Borrado');
+  };
+  if(q('#d-papel')) q('#d-papel').onclick = () => {
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='application/pdf,image/jpeg,image/png';
+    inp.onchange = async () => {
+      const f = inp.files[0]; if(!f) return;
+      try {
+        const ext = (f.name.split('.').pop()||'pdf').toLowerCase();
+        const path = `papel/${eid}/${r.periodo.slice(0,7)}_${r.tipo}_${rnd()}.${ext}`;
+        const up = await sb.storage.from(BUCKET).upload(path, f, { contentType:f.type });
+        if(up.error) throw up.error;
+        const h = await sha256(await f.arrayBuffer());
+        const { error } = await sb.from('rec_recibos').update({ estado:'firmado_papel', firmado_pdf_path:path, firmado_pdf_sha256:h, firmado_en:new Date().toISOString(), firmado_ante:S.email }).eq('id', r.id);
+        if(error) throw error;
+        dlg.close(); await cargarDatos(); vTablero(); toast('Guardado como firmado en papel');
+      } catch(e){ toast('Error: ' + errMsg(e)); }
+    };
+    inp.click();
+  };
+}
+
+// ===== Empleadas =====
+function vEmpleadas(){
+  const filas = S.emps.map(e => `<tr>
+    <td><b>${esc(e.nombre)}</b><br><span class="muted">${esc(e.cuil||'sin CUIL')}</span></td>
+    <td>${e.ingreso?e.ingreso.split('-').reverse().join('/'):'—'}</td>
+    <td>${S.pins[e.id]?'<span class="st-ok">PIN listo</span>':'<span class="st-err">Sin PIN</span>'}</td>
+    <td>${e.activa?'Activa':'<span class="muted">Inactiva</span>'}</td>
+    <td style="text-align:right;white-space:nowrap"><button class="btn" data-pin="${e.id}">PIN</button> <button class="btn" data-ed="${e.id}">Editar</button></td></tr>`).join('');
+  app.innerHTML = `<div class="card"><h2>Empleadas</h2>
+    ${S.emps.length?`<div class="tablewrap"><table><tr><th>Nombre</th><th>Ingreso</th><th>PIN</th><th>Estado</th><th></th></tr>${filas}</table></div>`:'<p class="muted">Todavía no hay empleadas.</p>'}
+    <p style="margin-top:14px"><button class="btn pri" id="nueva">+ Nueva empleada</button></p></div>
+    <div class="card muted" style="font-size:.9rem">El PIN lo elige y lo escribe cada empleada, sin que nadie lo vea. Es lo que prueba que la firma la hizo ella. Si alguna se lo olvida, se lo cambia acá.</div>`;
+  document.getElementById('nueva').onclick = () => formEmp();
+  app.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => formEmp(empById(b.dataset.ed)));
+  app.querySelectorAll('[data-pin]').forEach(b => b.onclick = () => formPin(empById(b.dataset.pin)));
+}
+function formEmp(e){
+  dlg.innerHTML = `<h2>${e?'Editar':'Nueva'} empleada</h2><form id="fe" class="row" style="flex-direction:column;align-items:stretch">
+    <label class="f">Nombre y apellido<input type="text" name="nombre" required value="${esc(e?.nombre)}"></label>
+    <label class="f">CUIL<input type="text" name="cuil" inputmode="numeric" placeholder="27-12345678-9" value="${esc(e?.cuil)}"></label>
+    <div class="row"><label class="f grow">Fecha de ingreso<input type="date" name="ingreso" value="${e?.ingreso||''}"></label>
+    <label class="f grow">Fecha de egreso<input type="date" name="egreso" value="${e?.egreso||''}"></label></div>
+    ${e?`<label><input type="checkbox" name="activa" ${e.activa?'checked':''}> Activa</label>`:''}
+    <div class="row"><button class="btn pri">Guardar</button><button type="button" class="btn" onclick="dlg.close()">Cancelar</button></div></form>`;
+  dlg.showModal();
+  dlg.querySelector('#fe').onsubmit = async ev => {
+    ev.preventDefault(); const f = ev.target;
+    const row = { nombre:f.nombre.value.trim(), cuil:f.cuil.value.trim()||null, ingreso:f.ingreso.value||null, egreso:f.egreso.value||null };
+    if(e) row.activa = f.activa.checked;
+    const q = e ? sb.from('rec_empleadas').update(row).eq('id', e.id) : sb.from('rec_empleadas').insert(row);
+    const { error } = await q; if(error) return toast(errMsg(error));
+    dlg.close(); await cargarDatos(); vEmpleadas(); toast('Guardado');
+  };
+}
+function formPin(e){
+  dlg.innerHTML = `<h2>PIN de ${esc(e.nombre)}</h2><p class="muted">Pasale el celu o la tablet para que lo escriba ella. De 4 a 6 números.</p>
+    <form id="fp" class="row" style="flex-direction:column;align-items:center">
+    <input class="pin" type="password" name="a" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="PIN" required autocomplete="off">
+    <input class="pin" type="password" name="b" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="Repetir" required autocomplete="off">
+    <p id="pe" class="st-err"></p>
+    <div class="row"><button class="btn pri">Guardar PIN</button><button type="button" class="btn" onclick="dlg.close()">Cancelar</button></div></form>`;
+  dlg.showModal();
+  dlg.querySelector('#fp').onsubmit = async ev => {
+    ev.preventDefault(); const f = ev.target;
+    if(f.a.value !== f.b.value){ dlg.querySelector('#pe').textContent = 'No coinciden'; return; }
+    const { error } = await sb.rpc('rec_set_pin', { p_empleada:e.id, p_pin:f.a.value });
+    if(error){ dlg.querySelector('#pe').textContent = errMsg(error); return; }
+    dlg.close(); S.pins[e.id] = true; vEmpleadas(); toast('PIN guardado');
+  };
+}
+
+// ===== Cargar =====
+let cola = [];
+function periodoDeNombre(n){
+  n = n.toLowerCase();
+  let m = n.match(/(20\d\d)[-_. ]?(0[1-9]|1[0-2])(?!\d)/); if(m) return pKey(+m[1], +m[2]);
+  m = n.match(/(?<!\d)(0?[1-9]|1[0-2])[-_. ](20\d\d)/); if(m) return pKey(+m[2], +m[1]);
+  for(let i=0;i<12;i++){ const re = new RegExp(MES_L[i].slice(0,3)+'[a-z]*[-_. ]*(20\\d\\d|\\d\\d)(?!\\d)'); m = n.match(re); if(m){ let y=+m[1]; if(y<100) y+=2000; return pKey(y, i+1); } }
+  return null;
+}
+function vCargar(){
+  const pre = S.prefill || {}; S.prefill = null;
+  const opts = S.emps.filter(e=>e.activa).map(e => `<option value="${e.id}" ${pre.emp===e.id?'selected':''}>${esc(e.nombre)}</option>`).join('');
+  if(!opts){ app.innerHTML = `<div class="card"><p>Primero cargá una empleada.</p><button class="btn pri" onclick="ir('empleadas')">Empleadas</button></div>`; return; }
+  cola = [];
+  app.innerHTML = `<div class="card"><h2>Cargar recibos</h2>
+    <div class="row">
+      <label class="f grow">Empleada<select id="c-emp">${opts}</select></label>
+      <label class="f grow">Primer período<input type="month" id="c-per" value="${(pre.periodo||sumarMes(hoyP(),-1)).slice(0,7)}"></label>
+      <label class="f grow">Tipo<select id="c-tipo">${Object.entries(TIPOS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
+    </div>
+    <p><label><input type="checkbox" id="c-papel"> Ya están firmados en papel (subo el escaneo o la foto)</label></p>
+    <div class="drop" id="drop"><b>Tocá para elegir archivos</b><br><span class="muted">o arrastralos acá · PDF (o foto si ya están firmados)</span></div>
+    <input type="file" id="c-files" multiple accept="application/pdf,image/jpeg,image/png" class="hide">
+    <p class="muted" style="font-size:.85rem">Si el nombre del archivo trae el mes (ej. <i>recibo_2025-12.pdf</i> o <i>dic-2025</i>) lo tomo de ahí; si no, voy sumando un mes desde el primer período en el orden de los nombres.</p>
+    <div id="lista"></div></div>`;
+  const drop = document.getElementById('drop'), inp = document.getElementById('c-files');
+  drop.onclick = () => inp.click();
+  drop.ondragover = ev => { ev.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = ev => { ev.preventDefault(); drop.classList.remove('over'); agregar([...ev.dataTransfer.files]); };
+  inp.onchange = () => { agregar([...inp.files]); inp.value=''; };
+  ['c-emp','c-per','c-tipo'].forEach(id => document.getElementById(id).onchange = recalcular);
+}
+function agregar(files){
+  files = files.filter(f => /pdf|jpeg|png/.test(f.type)).sort((a,b)=>a.name.localeCompare(b.name, 'es', {numeric:true}));
+  files.forEach(f => cola.push({ file:f, emp:null, periodo:null, auto:periodoDeNombre(f.name), tipo:null, st:'' }));
+  recalcular();
+}
+function recalcular(){
+  const emp = document.getElementById('c-emp').value, base = document.getElementById('c-per').value+'-01', tipo = document.getElementById('c-tipo').value;
+  let k = 0;
+  cola.forEach(c => { if(c.st==='ok') return; c.emp = c.empManual || emp; c.tipo = c.tipoManual || tipo; c.periodo = c.perManual || c.auto || sumarMes(base, k++); });
+  pintarCola();
+}
+function pintarCola(){
+  const el = document.getElementById('lista'); if(!cola.length){ el.innerHTML=''; return; }
+  const empOpts = sel => S.emps.filter(e=>e.activa).map(e=>`<option value="${e.id}" ${sel===e.id?'selected':''}>${esc(e.nombre)}</option>`).join('');
+  el.innerHTML = `<div class="tablewrap" style="margin-top:14px"><table><tr><th>Archivo</th><th>Empleada</th><th>Período</th><th>Tipo</th><th></th></tr>
+    ${cola.map((c,i)=>{ const dup = S.recs.some(r=>r.empleada_id===c.emp && r.periodo===c.periodo && r.tipo===c.tipo);
+      return `<tr><td style="max-width:180px;word-break:break-all">${esc(c.file.name)}</td>
+      <td><select data-i="${i}" data-k="emp" ${c.st==='ok'?'disabled':''}>${empOpts(c.emp)}</select></td>
+      <td><input type="month" data-i="${i}" data-k="per" value="${c.periodo.slice(0,7)}" ${c.st==='ok'?'disabled':''}></td>
+      <td><select data-i="${i}" data-k="tipo" ${c.st==='ok'?'disabled':''}>${Object.entries(TIPOS).map(([k,v])=>`<option value="${k}" ${c.tipo===k?'selected':''}>${v}</option>`).join('')}</select></td>
+      <td>${c.st==='ok'?'<span class="st-ok">✓ Subido</span>':c.st?`<span class="st-err">${esc(c.st)}</span>`:dup?'<span class="st-err">Ya existe</span>':`<button class="btn" data-x="${i}">✕</button>`}</td></tr>`; }).join('')}
+    </table></div><p class="row" style="margin-top:14px"><button class="btn pri big" id="subir">Subir ${cola.filter(c=>c.st!=='ok').length} recibo(s)</button><button class="btn" id="limpiar">Limpiar lista</button></p>`;
+  el.querySelectorAll('[data-k]').forEach(x => x.onchange = () => { const c = cola[x.dataset.i];
+    if(x.dataset.k==='emp') c.empManual = x.value; if(x.dataset.k==='per') c.perManual = x.value+'-01'; if(x.dataset.k==='tipo') c.tipoManual = x.value; recalcular(); });
+  el.querySelectorAll('[data-x]').forEach(x => x.onclick = () => { cola.splice(+x.dataset.x,1); recalcular(); });
+  document.getElementById('limpiar').onclick = () => { cola=[]; pintarCola(); };
+  document.getElementById('subir').onclick = subirCola;
+}
+async function subirCola(){
+  const papel = document.getElementById('c-papel').checked;
+  const btn = document.getElementById('subir'); btn.disabled = true; btn.textContent = 'Subiendo…';
+  for(const c of cola){
+    if(c.st==='ok') continue;
+    try {
+      const isPdf = c.file.type === 'application/pdf';
+      if(!papel && !isPdf) throw new Error('Para firmar en pantalla tiene que ser PDF');
+      const buf = await c.file.arrayBuffer(); const h = await sha256(buf);
+      const ext = isPdf ? 'pdf' : (c.file.type==='image/png'?'png':'jpg');
+      const path = `originales/${c.emp}/${c.periodo.slice(0,7)}_${c.tipo}_${rnd()}.${ext}`;
+      const up = await sb.storage.from(BUCKET).upload(path, c.file, { contentType:c.file.type }); if(up.error) throw up.error;
+      const row = { empleada_id:c.emp, periodo:c.periodo, tipo:c.tipo, pdf_path:path, pdf_sha256:h, estado: papel?'firmado_papel':'pendiente' };
+      if(papel){ row.firmado_pdf_path = path; row.firmado_pdf_sha256 = h; row.observacion = 'Cargado como firmado en papel'; }
+      const ins = await sb.from('rec_recibos').insert(row);
+      if(ins.error){ await sb.storage.from(BUCKET).remove([path]); if(ins.error.code==='23505') throw new Error('Ya existe ese mes'); throw ins.error; }
+      c.st = 'ok';
+    } catch(e){ c.st = errMsg(e); }
+  }
+  await cargarDatos(); pintarCola();
+  const n = cola.filter(c=>c.st==='ok').length; toast(`${n} recibo(s) subidos`);
+}
+
+// ===== Firmar =====
+function vFirmar(){
+  const conPend = S.emps.map(e => ({ e, n:S.recs.filter(r => r.empleada_id===e.id && r.estado==='pendiente').length })).filter(x => x.n);
+  app.innerHTML = `<div class="card"><h2>Modo firma</h2><p class="muted">Elegí quién va a firmar. Después le pasás el dispositivo.</p>
+    ${conPend.length ? `<div class="empbtns">${conPend.map(x=>`<button class="btn big" data-e="${x.e.id}">${esc(x.e.nombre)}<br><small class="muted">${x.n} pendiente${x.n>1?'s':''}</small></button>`).join('')}</div>` : '<p>No hay recibos pendientes 🎉</p>'}</div>`;
+  app.querySelectorAll('[data-e]').forEach(b => b.onclick = () => empezarFirma(b.dataset.e));
+}
+function empezarFirma(eid, primero){
+  const e = empById(eid);
+  if(!S.pins[eid]){ toast(`${e.nombre} no tiene PIN. Cargáselo en Empleadas.`, 3500); ir('empleadas'); return; }
+  let pend = S.recs.filter(r => r.empleada_id===eid && r.estado==='pendiente');
+  if(primero) pend = [pend.find(r=>r.id===primero), ...pend.filter(r=>r.id!==primero)].filter(Boolean);
+  S.firma = { e, pend, i:0, pin:null, hechos:0 };
+  S.view = 'firmar'; document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v==='firmar'));
+  app.innerHTML = `<div class="card" style="text-align:center"><h2>Hola, ${esc(e.nombre.split(' ')[0])}</h2>
+    <p>Tenés <b>${pend.length}</b> recibo${pend.length>1?'s':''} para firmar. Ingresá tu PIN.</p>
+    <form id="fpin" class="row" style="flex-direction:column;align-items:center">
+      <input class="pin" type="password" name="p" inputmode="numeric" maxlength="6" required autocomplete="off" autofocus>
+      <p id="pe" class="st-err"></p><button class="btn pri big">Continuar</button></form>
+    <p><button class="btn" onclick="S.firma=null;ir('firmar')">Cancelar</button></p></div>`;
+  document.getElementById('fpin').onsubmit = async ev => {
+    ev.preventDefault(); const pin = ev.target.p.value;
+    const { data, error } = await sb.rpc('rec_verificar_pin', { p_empleada:eid, p_pin:pin });
+    if(error || !data){ document.getElementById('pe').textContent = 'PIN incorrecto'; ev.target.p.value=''; return; }
+    S.firma.pin = pin; pantallaRecibo();
+  };
+}
+async function pantallaRecibo(){
+  const F = S.firma; const r = F.pend[F.i];
+  if(!r){ app.innerHTML = `<div class="card" style="text-align:center"><h2>¡Listo!</h2><p>Firmaste ${F.hechos} recibo${F.hechos!==1?'s':''}. Ya podés devolver el dispositivo.</p>
+    <button class="btn pri" onclick="S.firma=null;ir('tablero')">Volver al tablero</button></div>`; return; }
+  app.innerHTML = `<div class="card"><div class="row"><h2 class="grow">${TIPOS[r.tipo]} · ${pLong(r.periodo)}</h2><span class="muted">${F.i+1} de ${F.pend.length}</span></div>
+    <div class="pdfview" id="pv"><p style="color:#fff">Cargando recibo…</p></div></div>
+    <div class="card">
+      <p><label><input type="checkbox" id="leido"> Leí el recibo completo</label></p>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="conf" value="conforme" checked><b>Conforme</b><br><span class="muted">Estoy de acuerdo con el recibo</span></label>
+        <label class="opt"><input type="radio" name="conf" value="disconforme"><b>En disconformidad</b><br><span class="muted">Lo recibo pero no estoy de acuerdo</span></label>
+      </div>
+      <label class="f hide" id="obsw" style="margin-top:10px">¿Con qué no estás de acuerdo?<textarea id="obs"></textarea></label>
+      <p style="margin:14px 0 6px">Firmá acá con el dedo</p>
+      <div class="sigwrap"><canvas id="sig"></canvas><span class="ph" id="sigph">Firma</span></div>
+      <div class="row" style="margin-top:12px"><button class="btn" id="sigclr">Borrar firma</button><span class="grow"></span>
+        <button class="btn" onclick="if(confirm('¿Dejar de firmar? Lo que falte queda pendiente.')){S.firma=null;ir('tablero')}">Salir</button>
+        <button class="btn pri big" id="ok" disabled>Firmar recibo</button></div>
+      <p id="fe" class="st-err"></p></div>`;
+  // PDF
+  let bytes;
+  try {
+    const blob = await bajar(r.pdf_path); bytes = await blob.arrayBuffer();
+    const h = await sha256(bytes);
+    if(h !== r.pdf_sha256) throw new Error('El archivo no coincide con el que se cargó (huella distinta). No firmar.');
+    const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+    const pv = document.getElementById('pv'); pv.innerHTML = '';
+    for(let n=1;n<=pdf.numPages;n++){
+      const pg = await pdf.getPage(n); const vp = pg.getViewport({ scale: 2 });
+      const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height; pv.appendChild(cv);
+      await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    }
+  } catch(e){ document.getElementById('pv').innerHTML = `<p style="color:#fff">No se pudo mostrar: ${esc(errMsg(e))}</p>`; return; }
+  // Firma
+  const cv = document.getElementById('sig'); const ctx = cv.getContext('2d'); let trazos = 0, dib = false;
+  const ajustar = () => { const d = window.devicePixelRatio||1; cv.width = cv.clientWidth*d; cv.height = cv.clientHeight*d; ctx.setTransform(d,0,0,d,0,0); ctx.lineWidth = 2.4; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#111'; trazos=0; chk(); };
+  const pos = ev => { const b = cv.getBoundingClientRect(); return [ev.clientX-b.left, ev.clientY-b.top]; };
+  cv.onpointerdown = ev => { dib = true; cv.setPointerCapture(ev.pointerId); ctx.beginPath(); ctx.moveTo(...pos(ev)); };
+  cv.onpointermove = ev => { if(!dib) return; ctx.lineTo(...pos(ev)); ctx.stroke(); };
+  cv.onpointerup = cv.onpointercancel = () => { if(dib){ trazos++; document.getElementById('sigph').classList.add('hide'); chk(); } dib = false; };
+  ajustar();
+  document.getElementById('sigclr').onclick = () => { ctx.clearRect(0,0,cv.width,cv.height); document.getElementById('sigph').classList.remove('hide'); trazos = 0; chk(); };
+  const conf = () => app.querySelector('input[name=conf]:checked').value;
+  app.querySelectorAll('input[name=conf]').forEach(x => x.onchange = () => { document.getElementById('obsw').classList.toggle('hide', conf()!=='disconforme'); chk(); });
+  document.getElementById('leido').onchange = chk;
+  document.getElementById('obs').oninput = chk;
+  function chk(){ const b = document.getElementById('ok'); if(!b) return;
+    b.disabled = !(trazos>0 && document.getElementById('leido').checked && (conf()==='conforme' || document.getElementById('obs').value.trim())); }
+  document.getElementById('ok').onclick = async () => {
+    const b = document.getElementById('ok'); b.disabled = true; b.textContent = 'Firmando…';
+    try {
+      const firmaBlob = await new Promise(res => cv.toBlob(res, 'image/png'));
+      await firmarRecibo(r, F.e, F.pin, conf(), document.getElementById('obs').value, firmaBlob, bytes);
+      F.hechos++; F.i++; await cargarDatos(); toast('Recibo firmado ✓'); pantallaRecibo();
+    } catch(e){ document.getElementById('fe').textContent = 'No se pudo firmar: ' + errMsg(e); b.disabled = false; b.textContent = 'Firmar recibo'; }
+  };
+}
+
+async function firmarRecibo(r, e, pin, conformidad, obs, firmaBlob, origBytes){
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const ahora = new Date(); const ua = navigator.userAgent;
+  const doc = await PDFDocument.load(origBytes, { ignoreEncryption:true });
+  const page = doc.addPage([595.28, 841.89]);
+  const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let y = 790; const X = 56, W = 595.28 - 2*X;
+  const linea = (txt, o={}) => { const f = o.bold?bold:font, sz = o.size||10.5;
+    const words = winAnsi(txt).split(' '); let l = '';
+    const out = []; for(const w of words){ const t = l ? l+' '+w : w; if(f.widthOfTextAtSize(t, sz) > W && l){ out.push(l); l = w; } else l = t; } if(l) out.push(l);
+    out.forEach(s => { page.drawText(s, { x:X, y, size:sz, font:f, color:rgb(.1,.1,.1) }); y -= sz*1.45; }); y -= (o.after||4); };
+  linea('CONSTANCIA DE FIRMA ELECTRÓNICA DE RECIBO DE HABERES', { bold:true, size:13, after:10 });
+  linea(`Empleador: ${EMPRESA}`);
+  linea(`Trabajadora: ${e.nombre}${e.cuil?` - CUIL ${e.cuil}`:''}`);
+  linea(`Recibo: ${TIPOS[r.tipo]} - período ${pLong(r.periodo)}`, { after:10 });
+  linea('Declaro haber recibido este recibo de haberes y quedo notificada de su contenido.', { after:6 });
+  linea(conformidad==='conforme' ? 'Manifestación: CONFORME.' : 'Manifestación: EN DISCONFORMIDAD (arts. 58 y 260 de la Ley de Contrato de Trabajo).', { bold:true });
+  if(conformidad==='disconforme' && obs.trim()) linea(`Observación de la trabajadora: ${obs.trim()}`);
+  y -= 8;
+  linea(`Fecha y hora de firma: ${fmtFecha(ahora)} (hora de Buenos Aires, según el dispositivo; el registro del servidor queda en la base de datos)`);
+  linea('Identificación: PIN personal de la trabajadora, validado por el sistema al momento de firmar.');
+  linea(`Sesión del sistema: ${S.email}`);
+  linea(`Dispositivo: ${ua}`, { size:8.5 });
+  linea('Huella SHA-256 del recibo original (páginas anteriores):', { after:0 });
+  linea(r.pdf_sha256, { size:8.5, after:16 });
+  linea('Firma de la trabajadora:', { bold:true, after:4 });
+  const png = await doc.embedPng(await firmaBlob.arrayBuffer());
+  const esc2 = Math.min(260/png.width, 110/png.height);
+  page.drawImage(png, { x:X, y:y-png.height*esc2, width:png.width*esc2, height:png.height*esc2 });
+  y -= png.height*esc2 + 6;
+  page.drawLine({ start:{x:X,y}, end:{x:X+260,y}, thickness:.6, color:rgb(.4,.4,.4) }); y -= 14;
+  linea(e.nombre, { size:9.5 });
+  doc.setTitle(winAnsi(`Recibo ${pLong(r.periodo)} - ${e.nombre} - firmado`)); doc.setProducer('Lilen Recibos');
+  const out = await doc.save(); const hOut = await sha256(out);
+  const base = `${e.id}/${r.periodo.slice(0,7)}_${r.tipo}_${Date.now()}`;
+  const fPath = `firmas/${base}.png`, pPath = `firmados/${base}.pdf`;
+  let up = await sb.storage.from(BUCKET).upload(fPath, firmaBlob, { contentType:'image/png' }); if(up.error) throw up.error;
+  up = await sb.storage.from(BUCKET).upload(pPath, new Blob([out], {type:'application/pdf'}), { contentType:'application/pdf' }); if(up.error) throw up.error;
+  const { error } = await sb.rpc('rec_firmar', { p_recibo:r.id, p_pin:pin, p_conformidad:conformidad, p_observacion:obs||'', p_firma_path:fPath, p_firmado_pdf_path:pPath, p_firmado_sha256:hOut, p_ua:ua });
+  if(error) throw error;
+}
+
+// ===== Exportar =====
+function vExportar(){
+  const n = S.recs.length;
+  app.innerHTML = `<div class="card"><h2>Exportar todo</h2>
+    <p>Baja un ZIP con una carpeta por empleada, todos los recibos (firmados y originales) y un <i>indice.csv</i> con fechas, conformidad y huellas. Guardalo en el Drive como backup.</p>
+    <p><label><input type="checkbox" id="x-pend" checked> Incluir los pendientes (sin firmar)</label></p>
+    <button class="btn pri big" id="x-go" ${n?'':'disabled'}>Descargar ZIP (${n} recibos)</button><p id="x-st" class="muted"></p></div>
+    <div class="card"><p class="muted" style="margin:0">Sesión: ${esc(S.email)}</p><p><button class="btn" onclick="salir()">Cerrar sesión</button></p></div>`;
+  document.getElementById('x-go').onclick = exportar;
+}
+async function exportar(){
+  const btn = document.getElementById('x-go'), st = document.getElementById('x-st'); btn.disabled = true;
+  const incPend = document.getElementById('x-pend').checked;
+  const zip = new JSZip(); const filas = [['empleada','cuil','periodo','tipo','estado','conformidad','observacion','firmado_en','firmado_ante','sha256_original','sha256_firmado','archivo']];
+  const lista = S.recs.filter(r => incPend || r.estado!=='pendiente'); let i = 0;
+  try {
+    for(const r of lista){
+      i++; st.textContent = `Bajando ${i} de ${lista.length}…`;
+      const e = empById(r.empleada_id); const dir = winAnsi(e?.nombre||'sin_nombre').replace(/[\\/:*?"<>|]/g,'');
+      const pref = `${r.periodo.slice(0,7)}_${r.tipo}`;
+      const ext = p => p.split('.').pop();
+      let archivo = '';
+      if(r.firmado_pdf_path){ archivo = `${dir}/${pref}_firmado.${ext(r.firmado_pdf_path)}`; zip.file(archivo, await bajar(r.firmado_pdf_path)); }
+      if(r.pdf_path !== r.firmado_pdf_path){ const a = `${dir}/originales/${pref}_original.${ext(r.pdf_path)}`; zip.file(a, await bajar(r.pdf_path)); if(!archivo) archivo = a; }
+      filas.push([e?.nombre, e?.cuil, r.periodo.slice(0,7), r.tipo, r.estado, r.conformidad, r.observacion, r.firmado_en, r.firmado_ante, r.pdf_sha256, r.firmado_pdf_sha256, archivo]);
+    }
+    const csv = '\ufeff' + filas.map(f => f.map(v => `"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\r\n');
+    zip.file('indice.csv', csv);
+    st.textContent = 'Armando ZIP…';
+    const blob = await zip.generateAsync({ type:'blob' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `recibos_lilen_${new Date().toISOString().slice(0,10)}.zip`; a.click();
+    st.textContent = 'Listo ✓';
+  } catch(e){ st.textContent = 'Error: ' + errMsg(e); }
+  btn.disabled = false;
+}
+
+init().catch(e => { app.innerHTML = `<div class="card"><p class="st-err">Error: ${esc(errMsg(e))}</p></div>`; });
+</script>
+</body>
+</html>
