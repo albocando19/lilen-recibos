@@ -117,6 +117,9 @@ const SB_KEY = 'sb_publishable_5fSvvUgb3kU5zIxmQFWJHg_CKP508Do';
 const EMPRESA = 'Lilen Márquez Indumentaria';
 const INICIO = '2025-03-01';
 const BUCKET = 'recibos';
+const DOMINIO = 'recibos.lilen'; // dominio interno: "meli" -> meli@recibos.lilen
+const aEmail = u => { u = String(u||'').trim().toLowerCase(); return !u ? '' : u.includes('@') ? u : `${u}@${DOMINIO}`; };
+const aUsuario = m => { m = String(m||'').toLowerCase(); return m.endsWith('@'+DOMINIO) ? m.slice(0, -DOMINIO.length-1) : m; };
 const sb = supabase.createClient(SB_URL, SB_KEY);
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -161,7 +164,7 @@ async function init(){
   const { data:esAdmin } = await sb.rpc('es_admin');
   if(!esAdmin){
     const { data:yo } = await sb.rpc('rec_mi_empleada');
-    if(yo) return vMisRecibos(yo);
+    if(yo){ if(!session.user.user_metadata?.clave_propia) return vCambiarClave(yo, true); return vMisRecibos(yo); }
     app.innerHTML = `<div class="card"><h2>Sin acceso</h2><p>La cuenta ${esc(S.email)} no tiene recibos asociados.</p><button class="btn" onclick="salir()">Salir</button></div>`; return;
   }
   document.getElementById('nav').classList.remove('hide');
@@ -173,14 +176,14 @@ function vistaLogin(){
   app.innerHTML = `<div class="card" style="max-width:380px;margin:40px auto">
     <h2>Entrar</h2>
     <form id="fl" class="row" style="flex-direction:column;align-items:stretch">
-      <label class="f">Email<input type="email" name="e" required autocomplete="username"></label>
+      <label class="f">Usuario o email<input type="text" name="e" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
       <label class="f">Contraseña<input type="password" name="p" required autocomplete="current-password"></label>
       <button class="btn pri">Entrar</button><p id="le" class="st-err"></p>
     </form></div>`;
   document.getElementById('fl').onsubmit = async ev => {
     ev.preventDefault(); const f = ev.target;
-    const { error } = await sb.auth.signInWithPassword({ email:f.e.value.trim(), password:f.p.value });
-    if(error) document.getElementById('le').textContent = 'No pudimos entrar: ' + error.message; else init();
+    const { error } = await sb.auth.signInWithPassword({ email:aEmail(f.e.value), password:f.p.value });
+    if(error) document.getElementById('le').textContent = error.code==='invalid_credentials' ? 'Usuario o contraseña incorrectos' : 'No pudimos entrar: ' + error.message; else init();
   };
 }
 async function salir(){ await sb.auth.signOut(); S = { ...S, email:null, emps:[], recs:[], firma:null }; vistaLogin(); }
@@ -230,7 +233,7 @@ function vTablero(){
     }).join('');
     const nPend = S.recs.filter(r => r.empleada_id===e.id && r.estado==='pendiente').length;
     return `<div class="card"><div class="row"><h3 class="grow">${esc(e.nombre)}</h3>
-      ${!e.email ? '<span class="st-err" style="font-size:.85rem">Sin cuenta: no puede firmar</span>' : nPend ? `<span class="muted" style="font-size:.85rem">${nPend} por firmar</span>` : ''}</div>
+      ${!e.email ? '<span class="st-err" style="font-size:.85rem">Sin usuario: no puede firmar</span>' : nPend ? `<span class="muted" style="font-size:.85rem">${nPend} por firmar</span>` : ''}</div>
       <div class="chips">${chips}</div>${otros ? `<p class="muted" style="margin:12px 0 0;font-size:.85rem">Otros recibos</p><div class="chips">${otros}</div>` : ''}</div>`;
   }).join('');
   app.innerHTML = `<div class="stats">
@@ -299,20 +302,20 @@ function vEmpleadas(){
   const filas = S.emps.map(e => `<tr>
     <td><b>${esc(e.nombre)}</b><br><span class="muted">${esc(e.cuil||'sin CUIL')}</span></td>
     <td>${e.ingreso?e.ingreso.split('-').reverse().join('/'):'—'}</td>
-    <td>${e.email?esc(e.email):'<span class="st-err">Sin mail</span>'}</td>
+    <td>${e.email?esc(aUsuario(e.email)):'<span class="st-err">Sin usuario</span>'}</td>
     <td>${e.activa?'Activa':'<span class="muted">Inactiva</span>'}</td>
     <td style="text-align:right;white-space:nowrap"><button class="btn" data-ed="${e.id}">Editar</button></td></tr>`).join('');
   app.innerHTML = `<div class="card"><h2>Empleadas</h2>
-    ${S.emps.length?`<div class="tablewrap"><table><tr><th>Nombre</th><th>Ingreso</th><th>Cuenta</th><th>Estado</th><th></th></tr>${filas}</table></div>`:'<p class="muted">Todavía no hay empleadas.</p>'}
+    ${S.emps.length?`<div class="tablewrap"><table><tr><th>Nombre</th><th>Ingreso</th><th>Usuario</th><th>Estado</th><th></th></tr>${filas}</table></div>`:'<p class="muted">Todavía no hay empleadas.</p>'}
     <p style="margin-top:14px"><button class="btn pri" id="nueva">+ Nueva empleada</button></p></div>
-    <div class="card muted" style="font-size:.9rem">Cada empleada entra con su propio mail y contraseña, y solo ve sus recibos. El mail que pongas acá tiene que ser el mismo con el que se crea su usuario.</div>`;
+    <div class="card muted" style="font-size:.9rem">Cada empleada entra con su usuario y su contraseña, y solo ve sus recibos. En Supabase el usuario se crea como <b>usuario@${DOMINIO}</b> (ej. meli@${DOMINIO}). La primera vez que entra, la app le pide que elija su propia contraseña.</div>`;
   document.getElementById('nueva').onclick = () => formEmp();
   app.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => formEmp(empById(b.dataset.ed)));
 }
 function formEmp(e){
   dlg.innerHTML = `<h2>${e?'Editar':'Nueva'} empleada</h2><form id="fe" class="row" style="flex-direction:column;align-items:stretch">
     <label class="f">Nombre y apellido<input type="text" name="nombre" required value="${esc(e?.nombre)}"></label>
-    <label class="f">Mail de su cuenta<input type="email" name="email" placeholder="nombre@gmail.com" value="${esc(e?.email)}"></label>
+    <label class="f">Usuario<input type="text" name="usuario" placeholder="meli" autocapitalize="none" autocorrect="off" spellcheck="false" pattern="[a-zA-Z0-9._-]+|.+@.+" value="${esc(aUsuario(e?.email))}"></label>
     <label class="f">CUIL<input type="text" name="cuil" inputmode="numeric" placeholder="27-12345678-9" value="${esc(e?.cuil)}"></label>
     <div class="row"><label class="f grow">Fecha de ingreso<input type="date" name="ingreso" value="${e?.ingreso||''}"></label>
     <label class="f grow">Fecha de egreso<input type="date" name="egreso" value="${e?.egreso||''}"></label></div>
@@ -321,7 +324,7 @@ function formEmp(e){
   dlg.showModal();
   dlg.querySelector('#fe').onsubmit = async ev => {
     ev.preventDefault(); const f = ev.target;
-    const row = { nombre:f.nombre.value.trim(), email:f.email.value.trim().toLowerCase()||null, cuil:f.cuil.value.trim()||null, ingreso:f.ingreso.value||null, egreso:f.egreso.value||null };
+    const row = { nombre:f.nombre.value.trim(), email:aEmail(f.usuario.value)||null, cuil:f.cuil.value.trim()||null, ingreso:f.ingreso.value||null, egreso:f.egreso.value||null };
     if(e) row.activa = f.activa.checked;
     const q = e ? sb.from('rec_empleadas').update(row).eq('id', e.id) : sb.from('rec_empleadas').insert(row);
     const { error } = await q; if(error) return toast(errMsg(error));
@@ -414,6 +417,27 @@ async function subirCola(){
 
 // ===== Vista de la empleada (cuenta propia) =====
 let YO = null;
+function vCambiarClave(id, primera){
+  document.getElementById('nav').classList.add('hide');
+  app.innerHTML = `<div class="card" style="max-width:400px;margin:30px auto">
+    <h2>${primera ? 'Elegí tu contraseña' : 'Cambiar contraseña'}</h2>
+    ${primera ? '<p class="muted">Es la primera vez que entrás. Poné una contraseña que sepas solo vos: es lo que demuestra que los recibos los firmaste vos.</p>' : ''}
+    <form id="fc" class="row" style="flex-direction:column;align-items:stretch">
+      <label class="f">Nueva contraseña<input type="password" name="a" minlength="6" required autocomplete="new-password"></label>
+      <label class="f">Repetila<input type="password" name="b" minlength="6" required autocomplete="new-password"></label>
+      <p id="ce" class="st-err"></p>
+      <div class="row"><button class="btn pri">Guardar</button>${primera ? '' : '<button type="button" class="btn" id="cx">Cancelar</button>'}</div>
+    </form></div>`;
+  if(!primera) document.getElementById('cx').onclick = () => vMisRecibos(id);
+  document.getElementById('fc').onsubmit = async ev => {
+    ev.preventDefault(); const f = ev.target; const ce = document.getElementById('ce');
+    if(f.a.value !== f.b.value){ ce.textContent = 'No coinciden'; return; }
+    const { error } = await sb.auth.updateUser({ password:f.a.value, data:{ clave_propia:true } });
+    if(error){ ce.textContent = error.code==='same_password' ? 'Tiene que ser distinta a la anterior' : (error.code==='weak_password' ? 'Muy corta o muy fácil, probá otra' : errMsg(error)); return; }
+    toast('Contraseña guardada'); vMisRecibos(id);
+  };
+}
+
 async function vMisRecibos(id){
   document.getElementById('nav').classList.add('hide');
   const [e, r] = await Promise.all([
@@ -424,7 +448,7 @@ async function vMisRecibos(id){
   YO = e.data; S.recs = r.data;
   const pend = S.recs.filter(x => x.estado==='pendiente');
   const hechos = S.recs.filter(x => x.estado!=='pendiente').reverse();
-  app.innerHTML = `<div class="card"><div class="row"><h2 class="grow">Hola, ${esc(YO.nombre.split(' ')[0])}</h2><button class="btn" onclick="salir()">Salir</button></div>
+  app.innerHTML = `<div class="card"><div class="row"><h2 class="grow">Hola, ${esc(YO.nombre.split(' ')[0])}</h2><button class="btn" onclick="vCambiarClave(YO.id)">Cambiar contraseña</button> <button class="btn" onclick="salir()">Salir</button></div>
       ${pend.length ? `<p>Tenés <b>${pend.length}</b> recibo${pend.length>1?'s':''} para firmar.</p><button class="btn pri big" id="arrancar">Empezar a firmar</button>`
                     : '<p>No tenés recibos pendientes.</p>'}</div>
     ${hechos.length ? `<div class="card"><h2>Mis recibos</h2><div class="tablewrap"><table>
@@ -510,7 +534,7 @@ async function firmarRecibo(r, e, conformidad, obs, firmaBlob, origBytes){
   if(conformidad==='disconforme' && obs.trim()) linea(`Observación de la trabajadora: ${obs.trim()}`);
   y -= 8;
   linea(`Fecha y hora de firma: ${fmtFecha(ahora)} (hora de Buenos Aires, según el dispositivo; el registro del servidor queda en la base de datos)`);
-  linea(`Identificación: ingreso con cuenta personal de la trabajadora (${S.email}) y su contraseña.`);
+  linea(`Identificación: ingreso con usuario personal de la trabajadora (${aUsuario(S.email)}) y contraseña elegida por ella.`);
   linea(`Dispositivo: ${ua}`, { size:8.5 });
   linea('Huella SHA-256 del recibo original (páginas anteriores):', { after:0 });
   linea(r.pdf_sha256, { size:8.5, after:16 });
