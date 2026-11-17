@@ -62,7 +62,7 @@ h3{font-family:var(--f-marca);font-weight:600;font-size:14px;letter-spacing:.05e
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .grow{flex:1 1 auto}
 label.f{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--muted)}
-input[type=text],input[type=email],input[type=password],input[type=month],input[type=date],select,textarea{
+input[type=text],input[type=email],input[type=password],input[type=month],input[type=date],input[type=time],select,textarea{
   background:#fff;border:1px solid var(--rosa-borde);border-radius:10px;padding:10px 12px;min-width:0;width:100%;font-size:16px;color:var(--ink)}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
 input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
@@ -118,6 +118,28 @@ dialog::backdrop{background:rgba(34,28,31,.35)}
 .kv dt{color:var(--muted)} .kv dd{margin:0;word-break:break-all}
 .login-logo{display:block;width:150px;max-width:100%;margin:0 auto 12px;border-radius:8px}
 .barra-nav:has(nav.hide){display:none}
+/* Calendario de horarios */
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:12px}
+.cal-h{font-size:12px;color:var(--muted);text-align:center;font-weight:600;text-transform:uppercase;letter-spacing:.05em;padding-bottom:2px}
+.cal-d{min-height:58px;border:1px solid var(--line);background:#fff;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer;padding:4px 2px;color:var(--ink)}
+.cal-d .n{font-weight:600;font-size:15px}
+.cal-d .h{font-size:12px;font-variant-numeric:tabular-nums;font-weight:500}
+.cal-d:hover:not(:disabled){border-color:var(--accent)}
+.cal-d.hoy{box-shadow:inset 0 0 0 2px var(--accent)}
+.cal-d.off{background:transparent;color:#d4c8ce;cursor:default;border-color:transparent}
+.h-cargado{background:var(--pend);color:var(--pend-ink);border-color:var(--oro-suave)}
+.h-aprobado{background:var(--ok);color:var(--ok-ink);border-color:#bfe0c9}
+.h-rechazado{background:#fde8e6;color:var(--bad);border-color:#f1a9a2}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600;border:1px solid}
+.empchips{display:flex;gap:6px;flex-wrap:wrap}
+.empchips button{border:1px solid var(--rosa-borde);background:#fff;border-radius:999px;padding:7px 14px;cursor:pointer;font-size:15px}
+.empchips button:hover{background:var(--rosa)}
+.empchips button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.empchips .badge{display:inline-block;min-width:18px;padding:0 6px;margin-left:6px;border-radius:999px;background:var(--oro);color:#fff;font-size:11px;font-weight:700;line-height:18px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.banner{padding:10px 14px;border-radius:10px;font-size:14px;background:#fbf4e3;border:1px solid var(--oro-suave)}
+.banner a{color:var(--accent)}
+@media(max-width:520px){ .cal{gap:4px} .cal-d{min-height:48px;border-radius:8px} .cal-d .n{font-size:14px} .cal-d .h{font-size:11px} nav button{font-size:13px;padding:7px 4px} }
 .login-card{box-shadow:0 10px 40px rgba(200,24,106,.12)}
 </style>
 </head>
@@ -132,12 +154,7 @@ dialog::backdrop{background:rgba(34,28,31,.35)}
     <img class="flor der" src="assets/peonia-der.jpg" alt="">
   </div>
   <div class="barra-nav" id="barra">
-  <nav id="nav" class="hide">
-    <button data-v="tablero">Tablero</button>
-    <button data-v="cargar">Cargar</button>
-    <button data-v="empleadas">Empleadas</button>
-    <button data-v="exportar">Exportar</button>
-  </nav>
+  <nav id="nav" class="hide"></nav>
   </div>
 </header>
 <main id="app"><p class="muted">Cargando…</p></main>
@@ -197,11 +214,11 @@ async function init(){
   const { data:esAdmin } = await sb.rpc('es_admin');
   if(!esAdmin){
     const { data:yo } = await sb.rpc('rec_mi_empleada');
-    if(yo){ if(!session.user.user_metadata?.clave_propia) return vCambiarClave(yo, true); return vMisRecibos(yo); }
+    if(yo){ S.yo = yo; if(!session.user.user_metadata?.clave_propia) return vCambiarClave(yo, true); return vMisRecibos(yo); }
     app.innerHTML = `<div class="card"><h2>Sin acceso</h2><p>La cuenta ${esc(S.email)} no tiene recibos asociados.</p><button class="btn" onclick="salir()">Salir</button></div>`; return;
   }
-  document.getElementById('nav').classList.remove('hide');
   await cargarDatos();
+  setNav(NAV_ADMIN, S.view);
   ir(S.view);
 }
 function vistaLogin(){
@@ -224,20 +241,28 @@ async function salir(){ await sb.auth.signOut(); S = { ...S, email:null, emps:[]
 
 async function cargarDatos(){
   const [e, r] = await Promise.all([
-    sb.from('rec_empleadas').select('id,nombre,cuil,email,activa,ingreso,egreso,creado').order('nombre'),
+    sb.from('rec_empleadas').select('id,nombre,cuil,email,activa,ingreso,egreso,horas_semana,creado').order('nombre'),
     sb.from('rec_recibos').select('*').order('periodo')
   ]);
   if(e.error) throw e.error; if(r.error) throw r.error;
   S.emps = e.data; S.recs = r.data;
 }
 
+const NAV_ADMIN = [['tablero','Tablero'],['cargar','Cargar'],['horarios','Horarios'],['empleadas','Empleadas'],['exportar','Exportar']];
+const NAV_EMP = [['recibos','Mis recibos'],['horas','Mis horarios']];
+function setNav(items, on){
+  const n = document.getElementById('nav');
+  n.innerHTML = items.map(([k,t]) => `<button data-v="${k}" class="${k===on?'on':''}">${t}</button>`).join('');
+  n.classList.remove('hide');
+  n.querySelectorAll('button').forEach(b => b.onclick = () => ir(b.dataset.v));
+}
 function ir(v){
   S.view = v;
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
-  ({tablero:vTablero, cargar:vCargar, empleadas:vEmpleadas, exportar:vExportar})[v]();
+  correr(({tablero:vTablero, cargar:vCargar, horarios:vHorarios, empleadas:vEmpleadas, exportar:vExportar,
+    recibos:() => vMisRecibos(S.yo), horas:() => vMisHoras()})[v]);
   window.scrollTo(0,0);
 }
-document.querySelectorAll('#nav button').forEach(b => b.onclick = () => ir(b.dataset.v));
 
 // ===== Tablero =====
 function rangoEmp(e){
@@ -337,10 +362,11 @@ function vEmpleadas(){
     <td><b>${esc(e.nombre)}</b><br><span class="muted">${esc(e.cuil||'sin CUIL')}</span></td>
     <td>${e.ingreso?e.ingreso.split('-').reverse().join('/'):'—'}</td>
     <td>${e.email?esc(aUsuario(e.email)):'<span class="st-err">Sin usuario</span>'}</td>
+    <td>${e.horas_semana!=null?`${+e.horas_semana} h`:'<span class="muted">—</span>'}</td>
     <td>${e.activa?'Activa':'<span class="muted">Inactiva</span>'}</td>
     <td style="text-align:right;white-space:nowrap"><button class="btn" data-ed="${e.id}">Editar</button></td></tr>`).join('');
   app.innerHTML = `<div class="card"><h2>Empleadas</h2>
-    ${S.emps.length?`<div class="tablewrap"><table><tr><th>Nombre</th><th>Ingreso</th><th>Usuario</th><th>Estado</th><th></th></tr>${filas}</table></div>`:'<p class="muted">Todavía no hay empleadas.</p>'}
+    ${S.emps.length?`<div class="tablewrap"><table><tr><th>Nombre</th><th>Ingreso</th><th>Usuario</th><th>Hs/semana</th><th>Estado</th><th></th></tr>${filas}</table></div>`:'<p class="muted">Todavía no hay empleadas.</p>'}
     <p style="margin-top:14px"><button class="btn pri" id="nueva">+ Nueva empleada</button></p></div>
     <div class="card muted" style="font-size:.9rem">Cada empleada entra con su usuario y su contraseña, y solo ve sus recibos. En Supabase el usuario se crea como <b>usuario@${DOMINIO}</b> (ej. meli@${DOMINIO}). La primera vez que entra, la app le pide que elija su propia contraseña.</div>`;
   document.getElementById('nueva').onclick = () => formEmp();
@@ -353,12 +379,15 @@ function formEmp(e){
     <label class="f">CUIL<input type="text" name="cuil" inputmode="numeric" placeholder="27-12345678-9" value="${esc(e?.cuil)}"></label>
     <div class="row"><label class="f grow">Fecha de ingreso<input type="date" name="ingreso" value="${e?.ingreso||''}"></label>
     <label class="f grow">Fecha de egreso<input type="date" name="egreso" value="${e?.egreso||''}"></label></div>
+    <label class="f">Horas pactadas por semana (para calcular extras)<input type="text" name="hsem" inputmode="decimal" placeholder="Ej.: 36" value="${e?.horas_semana ?? ''}"></label>
     ${e?`<label><input type="checkbox" name="activa" ${e.activa?'checked':''}> Activa</label>`:''}
     <div class="row"><button class="btn pri">Guardar</button><button type="button" class="btn" onclick="dlg.close()">Cancelar</button></div></form>`;
   dlg.showModal();
   dlg.querySelector('#fe').onsubmit = async ev => {
     ev.preventDefault(); const f = ev.target;
     const row = { nombre:f.nombre.value.trim(), email:aEmail(f.usuario.value)||null, cuil:f.cuil.value.trim()||null, ingreso:f.ingreso.value||null, egreso:f.egreso.value||null };
+    const hs = f.hsem.value.trim().replace(',','.'); row.horas_semana = hs ? Number(hs) : null;
+    if(hs && (isNaN(row.horas_semana) || row.horas_semana < 0 || row.horas_semana > 60)) return toast('Las horas por semana tienen que ser un número entre 0 y 60');
     if(e) row.activa = f.activa.checked;
     const q = e ? sb.from('rec_empleadas').update(row).eq('id', e.id) : sb.from('rec_empleadas').insert(row);
     const { error } = await q; if(error) return toast(errMsg(error));
@@ -473,7 +502,7 @@ function vCambiarClave(id, primera){
 }
 
 async function vMisRecibos(id){
-  document.getElementById('nav').classList.add('hide');
+  S.yo = id; setNav(NAV_EMP, 'recibos');
   const [e, r] = await Promise.all([
     sb.from('rec_empleadas').select('id,nombre,cuil,email').eq('id', id).single(),
     sb.from('rec_recibos').select('*').eq('empleada_id', id).order('periodo')
@@ -588,6 +617,224 @@ async function firmarRecibo(r, e, conformidad, obs, firmaBlob, origBytes){
   const { error } = await sb.rpc('rec_firmar_propio', { p_recibo:r.id, p_conformidad:conformidad, p_observacion:obs||'', p_firma_path:fPath, p_firmado_pdf_path:pPath, p_firmado_sha256:hOut, p_ua:ua });
   if(error) throw error;
 }
+
+// ===== Horarios =====
+const DIAS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const H_EST = {cargado:'Por revisar', aprobado:'Aprobado', rechazado:'Rechazado'};
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const pDate = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const addDays = (s, n) => { const d = pDate(s); d.setDate(d.getDate()+n); return ymd(d); };
+const dow = s => (pDate(s).getDay()+6)%7; // 0 = lunes
+const hoyStr = () => ymd(new Date());
+const tMin = t => { if(!t) return null; const [h,m] = t.split(':').map(Number); return h*60+m; };
+const minutosDia = r => (tMin(r.salida1)-tMin(r.entrada1)) + (r.entrada2 ? tMin(r.salida2)-tMin(r.entrada2) : 0);
+const fmtH = min => { const s = min<0?'-':''; min = Math.abs(Math.round(min)); return `${s}${Math.floor(min/60)}:${String(min%60).padStart(2,'0')}`; };
+const hhmm = t => t ? t.slice(0,5) : '';
+const fCorta = s => { const [, m, d] = s.split('-'); return `${d}/${m}`; };
+const fLarga = s => pDate(s).toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' });
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const finMes = mes => addDays(sumarMes(mes,1), -1);
+
+async function traerHoras(eid, desde, hasta){
+  const { data, error } = await sb.from('rec_horas').select('*').eq('empleada_id', eid).gte('fecha', desde).lte('fecha', hasta).order('fecha');
+  if(error) throw error;
+  const m = {}; data.forEach(r => m[r.fecha] = r); return m;
+}
+
+function calendario(mes, horas, bloqueado){
+  const ultimo = finMes(mes), hoy = hoyStr();
+  let html = `<div class="cal">${DIAS.map(d => `<div class="cal-h">${d}</div>`).join('')}`;
+  for(let i=0; i<dow(mes); i++) html += '<div></div>';
+  for(let f = mes; f <= ultimo; f = addDays(f,1)){
+    const r = horas[f], off = f > hoy || (!r && bloqueado && bloqueado(f));
+    const cls = ['cal-d', r ? 'h-'+r.estado : '', off ? 'off' : '', f===hoy ? 'hoy' : ''].join(' ');
+    html += `<button class="${cls}" data-f="${f}" ${off?'disabled':''} title="${r?H_EST[r.estado]:''}"><span class="n">${+f.slice(8)}</span>${r ? `<span class="h">${fmtH(minutosDia(r))}</span>` : ''}</button>`;
+  }
+  return html + '</div>';
+}
+const leyendaH = () => `<div class="legend" style="margin-top:10px">
+  <span style="--c:var(--pend)">Por revisar</span><span style="--c:var(--ok)">Aprobado</span><span style="--c:#f6c9c4">Rechazado</span></div>`;
+
+// Ventana de un día (la usan las chicas y los admins)
+function dlgDia(f, r, { eid, admin, ultimo, onSave }){
+  const ro = !admin && r?.estado === 'aprobado';
+  const dis = ro ? 'disabled' : '';
+  dlg.innerHTML = `<div class="row"><h2 class="grow" style="margin:0">${cap(fLarga(f))}</h2><button class="btn" id="dx">✕</button></div>
+    ${r ? `<p style="margin:10px 0 0"><span class="pill h-${r.estado}">${H_EST[r.estado]}</span>${r.revisado_por && r.estado!=='cargado' ? ` <span class="muted" style="font-size:.85rem">por ${esc(aUsuario(r.revisado_por).split('@')[0])}</span>` : ''}</p>` : ''}
+    ${r?.motivo ? `<p class="st-err" style="margin:8px 0 0">${r.estado==='rechazado'?'Motivo':'Rechazado antes por'}: ${esc(r.motivo)}</p>` : ''}
+    <form id="fd" class="row" style="flex-direction:column;align-items:stretch;margin-top:12px" novalidate>
+      <div class="row"><label class="f grow">Entrada<input type="time" name="e1" step="300" value="${hhmm(r?.entrada1)}" ${dis}></label>
+        <label class="f grow">Salida<input type="time" name="s1" step="300" value="${hhmm(r?.salida1)}" ${dis}></label></div>
+      <div id="t2" class="row ${r?.entrada2 ? '' : 'hide'}"><label class="f grow">Volví a entrar<input type="time" name="e2" step="300" value="${hhmm(r?.entrada2)}" ${dis}></label>
+        <label class="f grow">Salida<input type="time" name="s2" step="300" value="${hhmm(r?.salida2)}" ${dis}></label></div>
+      ${ro ? '' : `<div class="row"><button type="button" class="btn" id="b2">${r?.entrada2 ? 'Quitar segundo turno' : '+ Horario cortado'}</button>
+        ${!r && ultimo ? `<button type="button" class="btn" id="bcp">Igual que el ${fCorta(ultimo.fecha)}</button>` : ''}</div>`}
+      <label class="f">Nota (opcional)<input type="text" name="nota" maxlength="300" value="${esc(r?.nota)}" placeholder="Ej.: me quedé por el inventario" ${dis}></label>
+      ${admin ? `<label class="f">Motivo, si lo rechazás<input type="text" name="motivo" maxlength="300" value="${esc(r?.estado==='rechazado' ? r.motivo : '')}"></label>` : ''}
+      <p id="dtot" style="margin:0;font-weight:600"></p>
+      <p class="st-err" id="de" style="margin:0"></p>
+      ${ro ? '<p class="muted" style="margin:0">Este día ya está aprobado. Si hay un error, avisale a la encargada.</p>' : `<div class="row">
+        ${admin ? `<button type="button" class="btn pri" data-a="aprobado">Aprobar</button><button type="button" class="btn danger" data-a="rechazado">Rechazar</button><button type="button" class="btn" data-a="guardar">Solo guardar</button>`
+                : `<button type="button" class="btn pri" data-a="guardar">Guardar</button>`}
+        ${r ? `<span class="grow"></span><button type="button" class="btn danger" data-a="borrar">Borrar día</button>` : ''}</div>`}
+    </form>`;
+  dlg.showModal();
+  const fm = dlg.querySelector('#fd'), t2 = dlg.querySelector('#t2'), de = dlg.querySelector('#de');
+  dlg.querySelector('#dx').onclick = () => dlg.close();
+  const leer = () => {
+    const v = n => fm[n].value || null, dos = !t2.classList.contains('hide');
+    return { e1:v('e1'), s1:v('s1'), e2: dos ? v('e2') : null, s2: dos ? v('s2') : null };
+  };
+  const total = () => { const x = leer(); if(!x.e1 || !x.s1) return null;
+    let m = tMin(x.s1) - tMin(x.e1); if(x.e2 && x.s2) m += tMin(x.s2) - tMin(x.e2); return m; };
+  const pintar = () => { const m = total(); dlg.querySelector('#dtot').textContent = m != null && m > 0 ? `Total del día: ${fmtH(m)} h` : ''; };
+  fm.querySelectorAll('input[type=time]').forEach(i => i.oninput = pintar); pintar();
+  const b2 = dlg.querySelector('#b2');
+  if(b2) b2.onclick = () => { const on = t2.classList.toggle('hide'); b2.textContent = on ? '+ Horario cortado' : 'Quitar segundo turno'; if(on){ fm.e2.value=''; fm.s2.value=''; } pintar(); };
+  const bcp = dlg.querySelector('#bcp');
+  if(bcp) bcp.onclick = () => { fm.e1.value = hhmm(ultimo.entrada1); fm.s1.value = hhmm(ultimo.salida1);
+    if(ultimo.entrada2){ t2.classList.remove('hide'); b2.textContent = 'Quitar segundo turno'; fm.e2.value = hhmm(ultimo.entrada2); fm.s2.value = hhmm(ultimo.salida2); } pintar(); };
+  dlg.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+    const a = b.dataset.a; de.textContent = '';
+    try {
+      if(a === 'borrar'){
+        if(!confirm('¿Borrar lo cargado en este día?')) return;
+        const { error } = await sb.from('rec_horas').delete().eq('id', r.id); if(error) throw error;
+        dlg.close(); toast('Día borrado'); return onSave();
+      }
+      const x = leer();
+      if(!x.e1 || !x.s1) throw new Error('Completá entrada y salida');
+      if(tMin(x.s1) <= tMin(x.e1)) throw new Error('La salida tiene que ser después de la entrada');
+      if(!t2.classList.contains('hide')){
+        if(!x.e2 || !x.s2) throw new Error('Completá el segundo turno o quitalo');
+        if(tMin(x.e2) < tMin(x.s1)) throw new Error('El segundo turno tiene que empezar después del primero');
+        if(tMin(x.s2) <= tMin(x.e2)) throw new Error('En el segundo turno, la salida tiene que ser después de la entrada');
+      }
+      const row = { entrada1:x.e1, salida1:x.s1, entrada2:x.e2, salida2:x.s2, nota: fm.nota.value.trim() || null };
+      if(admin && a !== 'guardar'){
+        row.estado = a;
+        if(a === 'rechazado'){ row.motivo = fm.motivo.value.trim(); if(!row.motivo) throw new Error('Escribí el motivo del rechazo'); }
+      }
+      const q = r ? sb.from('rec_horas').update(row).eq('id', r.id) : sb.from('rec_horas').insert({ ...row, empleada_id:eid, fecha:f });
+      const { error } = await q; if(error) throw error;
+      dlg.close(); toast(a==='aprobado' ? 'Aprobado ✓' : a==='rechazado' ? 'Rechazado' : 'Guardado'); onSave();
+    } catch(e){ de.textContent = errMsg(e); }
+  });
+}
+
+// --- Vista de la empleada ---
+let HM = null;
+async function vMisHoras(mes){
+  HM = mes || HM || hoyP();
+  const ultimoDia = finMes(HM), limite = addDays(hoyStr(), -62);
+  app.innerHTML = '<p class="muted">Cargando…</p>';
+  const [horas, prev] = await Promise.all([
+    traerHoras(S.yo, HM, ultimoDia),
+    sb.from('rec_horas').select('*').eq('empleada_id', S.yo).lte('fecha', ultimoDia).order('fecha', { ascending:false }).limit(1)
+  ]);
+  const rs = Object.values(horas);
+  const tot = rs.reduce((a,r) => a + minutosDia(r), 0);
+  const apr = rs.filter(r => r.estado==='aprobado').reduce((a,r) => a + minutosDia(r), 0);
+  const rech = rs.filter(r => r.estado==='rechazado').length;
+  app.innerHTML = `<div class="card"><div class="row"><button class="btn" id="mp" aria-label="Mes anterior">‹</button>
+      <h2 class="grow" style="text-align:center;margin:0">${cap(pLong(HM))}</h2>
+      <button class="btn" id="mn" aria-label="Mes siguiente" ${HM >= hoyP() ? 'disabled' : ''}>›</button></div>
+    <p class="muted" style="font-size:.9rem;margin:10px 0 0">Tocá un día para cargar a qué hora entraste y saliste.</p>
+    ${calendario(HM, horas, f => f < limite)}${leyendaH()}</div>
+    ${rech ? `<div class="card" style="border-color:#f1a9a2;background:#fdf3f2"><b class="st-err">Tenés ${rech} día${rech>1?'s':''} rechazado${rech>1?'s':''}.</b> Tocalo en el calendario para ver el motivo y corregirlo.</div>` : ''}
+    <div class="stats"><div class="stat"><b>${fmtH(tot)}</b><span class="muted">Horas cargadas</span></div>
+      <div class="stat"><b>${fmtH(apr)}</b><span class="muted">Horas aprobadas</span></div>
+      <div class="stat"><b>${rs.length}</b><span class="muted">Días cargados</span></div></div>`;
+  document.getElementById('mp').onclick = () => vMisHoras(sumarMes(HM,-1));
+  document.getElementById('mn').onclick = () => vMisHoras(sumarMes(HM,1));
+  const ultimo = (prev.data || [])[0];
+  app.querySelectorAll('.cal-d:not(:disabled)').forEach(b => b.onclick = () =>
+    dlgDia(b.dataset.f, horas[b.dataset.f], { eid:S.yo, admin:false, ultimo, onSave:() => vMisHoras() }));
+}
+
+// --- Vista de los admins ---
+const HA = { emp:null, mes:null };
+function semanasDelMes(mes, horas, pactadas){
+  const ultimoDia = finMes(mes), out = [];
+  for(let lun = addDays(mes, -dow(mes)); lun <= ultimoDia; lun = addDays(lun, 7)){
+    const dom = addDays(lun, 6); let cargadas = 0, aprobadas = 0, revisar = 0;
+    for(let f = lun; f <= dom; f = addDays(f,1)){ const r = horas[f]; if(!r) continue;
+      const m = minutosDia(r); cargadas += m; if(r.estado==='aprobado') aprobadas += m; if(r.estado==='cargado') revisar++; }
+    const extra = pactadas != null ? Math.max(0, aprobadas - pactadas*60) : null;
+    out.push({ lun, dom, cargadas, aprobadas, revisar, extra, cuenta: dom <= ultimoDia });
+  }
+  return out;
+}
+async function vHorarios(){
+  HA.mes = HA.mes || hoyP();
+  const activas = S.emps.filter(e => e.activa && e.email);
+  if(!activas.length){ app.innerHTML = `<div class="card"><p>No hay empleadas con usuario.</p><button class="btn pri" onclick="ir('empleadas')">Empleadas</button></div>`; return; }
+  if(!activas.some(e => e.id === HA.emp)) HA.emp = activas[0].id;
+  const e = empById(HA.emp), ultimoDia = finMes(HA.mes);
+  const desde = addDays(HA.mes, -dow(HA.mes)), hasta = addDays(ultimoDia, 6 - dow(ultimoDia));
+  app.innerHTML = '<p class="muted">Cargando…</p>';
+  const [pend, horas] = await Promise.all([
+    sb.from('rec_horas').select('empleada_id').eq('estado','cargado').gte('fecha', HA.mes).lte('fecha', ultimoDia),
+    traerHoras(HA.emp, desde, hasta)
+  ]);
+  if(pend.error) throw pend.error;
+  const nPend = id => pend.data.filter(x => x.empleada_id === id).length;
+  const enMes = {}; Object.values(horas).forEach(r => { if(r.fecha >= HA.mes && r.fecha <= ultimoDia) enMes[r.fecha] = r; });
+  const sem = semanasDelMes(HA.mes, horas, e.horas_semana);
+  const cuentan = sem.filter(s => s.cuenta);
+  const tot = Object.values(enMes).reduce((a,r) => a + minutosDia(r), 0);
+  const apr = Object.values(enMes).filter(r => r.estado==='aprobado').reduce((a,r) => a + minutosDia(r), 0);
+  const porRevisar = nPend(HA.emp);
+  const extraMes = e.horas_semana != null ? cuentan.reduce((a,s) => a + s.extra, 0) : null;
+  app.innerHTML = `<div class="card">
+      <div class="empchips">${activas.map(x => `<button data-e="${x.id}" class="${x.id===HA.emp?'on':''}">${esc(x.nombre)}${nPend(x.id) ? `<span class="badge">${nPend(x.id)}</span>` : ''}</button>`).join('')}</div>
+      <div class="row" style="margin-top:14px"><button class="btn" id="mp" aria-label="Mes anterior">‹</button>
+        <h2 class="grow" style="text-align:center;margin:0">${esc(e.nombre)} · ${cap(pLong(HA.mes))}</h2>
+        <button class="btn" id="mn" aria-label="Mes siguiente">›</button></div>
+      ${calendario(HA.mes, enMes)}${leyendaH()}
+      <div class="row" style="margin-top:14px">
+        ${porRevisar ? `<button class="btn pri" id="aprTodo">Aprobar los ${porRevisar} día${porRevisar>1?'s':''} por revisar</button>` : '<span class="muted">No hay días por revisar este mes.</span>'}
+        <span class="grow"></span><button class="btn" id="csv" ${Object.keys(enMes).length ? '' : 'disabled'}>Descargar planilla</button></div></div>
+    <div class="stats">
+      <div class="stat"><b>${fmtH(tot)}</b><span class="muted">Horas cargadas</span></div>
+      <div class="stat"><b>${fmtH(apr)}</b><span class="muted">Horas aprobadas</span></div>
+      <div class="stat"><b>${porRevisar}</b><span class="muted">Días por revisar</span></div>
+      <div class="stat"><b>${extraMes != null ? fmtH(extraMes) : '—'}</b><span class="muted">Posibles extras (aprobadas)</span></div></div>
+    <div class="card"><h2>Semana por semana</h2>
+      ${e.horas_semana == null ? `<p class="banner" style="margin:0 0 12px">Para calcular extras, cargá cuántas horas por semana tiene pactadas ${esc(e.nombre)} en <a href="#" id="irEmp">Empleadas</a>.</p>` : ''}
+      <div class="tablewrap"><table><tr><th>Semana</th><th class="num">Cargadas</th><th class="num">Aprobadas</th><th class="num">Pactadas</th><th class="num">Extra</th></tr>
+      ${sem.map(s => `<tr${s.cuenta ? '' : ' class="muted"'}><td>${fCorta(s.lun)} al ${fCorta(s.dom)}${s.revisar ? ` <span class="pill h-cargado" style="font-size:11px;padding:1px 7px">${s.revisar} por revisar</span>` : ''}${s.cuenta ? '' : '<br><small>Termina el mes que viene: cuenta en ese mes</small>'}</td>
+        <td class="num">${fmtH(s.cargadas)}</td><td class="num">${fmtH(s.aprobadas)}</td>
+        <td class="num">${e.horas_semana != null ? fmtH(e.horas_semana*60) : '—'}</td>
+        <td class="num"><b>${s.extra != null ? (s.extra ? fmtH(s.extra) : '0:00') : '—'}</b></td></tr>`).join('')}
+      </table></div>
+      <p class="muted" style="font-size:.85rem;margin:12px 0 0">Las extras salen de comparar lo aprobado de cada semana (lunes a domingo) con las horas pactadas. Cada semana cuenta en el mes en que termina. Es una referencia: cómo se pagan (50%, 100%, feriados) lo define el contador.</p></div>`;
+  app.querySelectorAll('.empchips [data-e]').forEach(b => b.onclick = () => { HA.emp = b.dataset.e; correr(vHorarios); });
+  document.getElementById('mp').onclick = () => { HA.mes = sumarMes(HA.mes,-1); correr(vHorarios); };
+  document.getElementById('mn').onclick = () => { HA.mes = sumarMes(HA.mes,1); correr(vHorarios); };
+  const irEmp = document.getElementById('irEmp'); if(irEmp) irEmp.onclick = ev => { ev.preventDefault(); ir('empleadas'); };
+  app.querySelectorAll('.cal-d:not(:disabled)').forEach(b => b.onclick = () =>
+    dlgDia(b.dataset.f, enMes[b.dataset.f], { eid:HA.emp, admin:true, onSave:() => correr(vHorarios) }));
+  const at = document.getElementById('aprTodo');
+  if(at) at.onclick = async () => {
+    if(!confirm(`¿Aprobar los ${porRevisar} días por revisar de ${e.nombre}?`)) return;
+    const { error } = await sb.from('rec_horas').update({ estado:'aprobado' }).eq('empleada_id', HA.emp).eq('estado','cargado').gte('fecha', HA.mes).lte('fecha', ultimoDia);
+    if(error) return toast(errMsg(error)); toast('Aprobados ✓'); correr(vHorarios);
+  };
+  document.getElementById('csv').onclick = () => {
+    const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+    const filas = [['Fecha','Día','Entrada','Salida','Entrada 2','Salida 2','Horas','Estado','Nota','Motivo rechazo','Revisó']];
+    Object.values(enMes).sort((a,b) => a.fecha.localeCompare(b.fecha)).forEach(r => filas.push([r.fecha.split('-').reverse().join('/'), DIAS[dow(r.fecha)],
+      hhmm(r.entrada1), hhmm(r.salida1), hhmm(r.entrada2), hhmm(r.salida2), fmtH(minutosDia(r)), H_EST[r.estado], r.nota, r.motivo, r.revisado_por]));
+    filas.push([]); filas.push(['Semana','','','','','','Cargadas','Aprobadas','Pactadas','Extra','']);
+    sem.forEach(s => filas.push([`${fCorta(s.lun)} al ${fCorta(s.dom)}${s.cuenta ? '' : ' (cuenta el mes siguiente)'}`,'','','','','', fmtH(s.cargadas), fmtH(s.aprobadas),
+      e.horas_semana != null ? fmtH(e.horas_semana*60) : '', s.extra != null ? fmtH(s.extra) : '', '']));
+    const blob = new Blob(['﻿' + filas.map(f => f.map(q).join(';')).join('\r\n')], { type:'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `horarios_${winAnsi(e.nombre).replace(/\W+/g,'_').toLowerCase()}_${HA.mes.slice(0,7)}.csv`; a.click();
+  };
+}
+function correr(fn){ const p = fn(); if(p && p.catch) p.catch(e => { app.innerHTML = `<div class="card"><p class="st-err">Error: ${esc(errMsg(e))}</p></div>`; }); }
 
 // ===== Exportar =====
 function vExportar(){
