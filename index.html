@@ -859,7 +859,7 @@ async function cardPlata(activas, ultimoDia){
         <td class="num">${x.rev ? `${pesos(x.rev*vh)}<br><small class="muted">${fHs(x.rev)}</small>` : '<span class="muted">—</span>'}</td></tr>`).join('')}
       <tr class="tot"><td>Total</td><td class="num">${pesos(T('sueldo'))}</td><td class="num">${pesos(T('apr')*vh)}</td><td class="num">${pesos(filas.reduce((a,x) => a + tot(x), 0))}</td><td class="num">${T('rev') ? pesos(T('rev')*vh) : '—'}</td></tr>
     </table></div>
-    <h3 style="margin:18px 0 0">Otro personal (sin usuario)</h3>
+    <h3 style="margin:18px 0 0">Otro personal y cargas sociales</h3>
     <div class="tablewrap" style="margin-top:6px"><table>
       <tr><th>Nombre</th><th>Arreglo</th><th class="num">Este mes</th></tr>
       ${otros.map(filaG).join('')}
