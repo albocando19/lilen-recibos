@@ -136,6 +136,11 @@ dialog::backdrop{background:rgba(34,28,31,.35)}
 .hx-r{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .hx-r .btn{padding:8px 0;font-size:14px}
 .plata{border-color:var(--oro-suave);background:#fffdf7}
+.btn.mini{padding:3px 10px;font-size:13px}
+.linkbtn{background:none;border:0;padding:0;color:var(--accent);font-size:12.5px;cursor:pointer;text-align:left}
+.linkbtn:hover{text-decoration:underline}
+.hgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.hgrid input{text-align:center;padding:8px 2px!important}
 tr.tot td{font-weight:700;border-top:2px solid var(--oro-suave);border-bottom:0}
 .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600;border:1px solid}
 .empchips{display:flex;gap:6px;flex-wrap:wrap}
@@ -798,37 +803,79 @@ const DUENO = 'albocando@gmail.com';
 const pesos = n => '$' + Math.round(n).toLocaleString('es-AR');
 async function cardPlata(activas, ultimoDia){
   const el = document.getElementById('plata'); if(!el) return;
-  const [cfg, hs] = await Promise.all([
-    sb.from('rec_config_privada').select('valor').eq('clave','valor_hora_extra').maybeSingle(),
-    sb.from('rec_horas').select('empleada_id,horas,estado').gte('fecha', HA.mes).lte('fecha', ultimoDia).neq('estado','rechazado')
+  const [cfg, hs, suel] = await Promise.all([
+    sb.from('rec_config_privada').select('clave,valor'),
+    sb.from('rec_horas').select('empleada_id,horas,estado').gte('fecha', HA.mes).lte('fecha', ultimoDia).neq('estado','rechazado'),
+    sb.from('rec_sueldo_privado').select('empleada_id,horario')
   ]);
-  if(cfg.error || !cfg.data) return; // si no es el dueño, no hay nada que mostrar
-  if(hs.error) throw hs.error;
-  const vh = Number(cfg.data.valor);
+  if(cfg.error || !cfg.data || !cfg.data.length) return; // si no es el dueño, la base no devuelve nada
+  if(hs.error) throw hs.error; if(suel.error) throw suel.error;
+  const c = {}; cfg.data.forEach(x => c[x.clave] = Number(x.valor));
+  const vh = c.valor_hora_extra ?? 0, vn = c.valor_hora_normal ?? 0;
+  const horario = {}; suel.data.forEach(x => horario[x.empleada_id] = x.horario || {});
+  // Horas normales del mes según su horario, desde que ingresó y hasta que se fue
+  const normales = e => {
+    const h = horario[e.id]; if(!h) return null;
+    let desde = HA.mes, hasta = ultimoDia, t = 0;
+    if(e.ingreso && e.ingreso > desde) desde = e.ingreso;
+    if(e.egreso && e.egreso < hasta) hasta = e.egreso;
+    for(let f = desde; f <= hasta; f = addDays(f,1)) t += Number(h[dow(f)] || 0);
+    return t;
+  };
+  const resumenHorario = h => !h ? '' : DIAS.map((d,i) => h[i] ? `${d} ${String(h[i]).replace('.',',')}h` : '').filter(Boolean).join(' · ');
   const filas = activas.map(e => {
     const mias = hs.data.filter(x => x.empleada_id === e.id);
     const apr = sumaHs(mias.filter(x => x.estado==='aprobado')), rev = sumaHs(mias.filter(x => x.estado==='cargado'));
-    return { e, apr, rev };
-  }).filter(x => x.apr || x.rev);
-  const tA = filas.reduce((a,x) => a + x.apr, 0), tR = filas.reduce((a,x) => a + x.rev, 0);
-  el.innerHTML = `<div class="card plata"><div class="row"><h2 class="grow" style="margin:0">Plata en extras · ${cap(pLong(HA.mes))}</h2><span class="pill" style="border-color:var(--oro);color:var(--pend-ink)">Solo vos</span></div>
-    <div class="row" style="margin-top:10px"><span class="muted">Valor de la hora extra:</span> <b id="vh">${pesos(vh)}</b> <button class="btn" id="vhEd" style="padding:4px 10px;font-size:13px">Cambiar</button></div>
-    ${filas.length ? `<div class="tablewrap" style="margin-top:8px"><table>
-      <tr><th>Empleada</th><th class="num">Aprobadas</th><th class="num">A pagar</th><th class="num">Por revisar</th><th class="num">Si se aprueban</th></tr>
-      ${filas.map(x => `<tr${x.e.id===HA.emp?' style="background:var(--rosa)"':''}><td>${esc(x.e.nombre)}</td><td class="num">${fHs(x.apr)}</td><td class="num"><b>${pesos(x.apr*vh)}</b></td>
-        <td class="num">${x.rev ? fHs(x.rev) : '—'}</td><td class="num">${x.rev ? pesos(x.rev*vh) : '—'}</td></tr>`).join('')}
-      <tr class="tot"><td>Total</td><td class="num">${fHs(tA)}</td><td class="num"><b>${pesos(tA*vh)}</b></td><td class="num">${tR ? fHs(tR) : '—'}</td><td class="num">${tR ? pesos(tR*vh) : '—'}</td></tr>
+    const hn = normales(e);
+    return { e, apr, rev, hn, sueldo: hn != null ? hn*vn : null };
+  });
+  const T = k => filas.reduce((a,x) => a + (x[k] || 0), 0);
+  const tot = x => (x.sueldo || 0) + x.apr*vh;
+  el.innerHTML = `<div class="card plata"><div class="row"><h2 class="grow" style="margin:0">Sueldos y extras · ${cap(pLong(HA.mes))}</h2><span class="pill" style="border-color:var(--oro);color:var(--pend-ink)">Solo vos</span></div>
+    <div class="row" style="margin-top:10px;gap:6px 14px">
+      <span><span class="muted">Hora normal:</span> <b>${pesos(vn)}</b> <button class="btn mini" data-v="valor_hora_normal">Cambiar</button></span>
+      <span><span class="muted">Hora extra:</span> <b>${pesos(vh)}</b> <button class="btn mini" data-v="valor_hora_extra">Cambiar</button></span></div>
+    <div class="tablewrap" style="margin-top:8px"><table>
+      <tr><th>Empleada</th><th class="num">Sueldo normal</th><th class="num">Extras aprobadas</th><th class="num">Total a pagar</th><th class="num">Extras por revisar</th></tr>
+      ${filas.map(x => `<tr${x.e.id===HA.emp?' style="background:var(--rosa)"':''}>
+        <td><b>${esc(x.e.nombre)}</b><br><button class="linkbtn" data-h="${x.e.id}">${horario[x.e.id] ? esc(resumenHorario(horario[x.e.id])) || 'Sin días' : '+ Cargar horario'}</button></td>
+        <td class="num">${x.sueldo != null ? `${pesos(x.sueldo)}<br><small class="muted">${fHs(x.hn)}</small>` : '<span class="muted">—</span>'}</td>
+        <td class="num">${x.apr ? `${pesos(x.apr*vh)}<br><small class="muted">${fHs(x.apr)}</small>` : '<span class="muted">—</span>'}</td>
+        <td class="num"><b>${pesos(tot(x))}</b></td>
+        <td class="num">${x.rev ? `${pesos(x.rev*vh)}<br><small class="muted">${fHs(x.rev)}</small>` : '<span class="muted">—</span>'}</td></tr>`).join('')}
+      <tr class="tot"><td>Total</td><td class="num">${pesos(T('sueldo'))}</td><td class="num">${pesos(T('apr')*vh)}</td><td class="num">${pesos(filas.reduce((a,x) => a + tot(x), 0))}</td><td class="num">${T('rev') ? pesos(T('rev')*vh) : '—'}</td></tr>
     </table></div>
-    <p class="muted" style="font-size:.85rem;margin:10px 0 0">Aproximado: horas × valor de la hora. No incluye recargos ni cargas sociales.</p>`
-    : '<p class="muted" style="margin:10px 0 0">Nadie cargó horas extras este mes.</p>'}</div>`;
-  document.getElementById('vhEd').onclick = async () => {
-    const v = prompt('Valor de la hora extra (en pesos):', String(vh));
+    <p class="muted" style="font-size:.85rem;margin:10px 0 0">Aproximado. Sueldo normal = días de su horario en el mes × horas × valor de la hora normal (no descuenta feriados ni faltas). Extras = horas aprobadas × valor de la hora extra. No incluye cargas sociales ni aguinaldo.</p></div>`;
+  el.querySelectorAll('[data-v]').forEach(b => b.onclick = async () => {
+    const clave = b.dataset.v, actual = c[clave] ?? 0;
+    const v = prompt(clave==='valor_hora_normal' ? 'Valor de la hora normal (en pesos):' : 'Valor de la hora extra (en pesos):', String(actual));
     if(v == null) return;
     const n = Number(String(v).replace(/[$.\s]/g,'').replace(',','.'));
     if(!(n >= 0)) return toast('Poné un número válido');
-    const { error } = await sb.from('rec_config_privada').update({ valor:n, actualizado:new Date().toISOString() }).eq('clave','valor_hora_extra');
+    const { error } = await sb.from('rec_config_privada').upsert({ clave, valor:n, actualizado:new Date().toISOString() });
     if(error) return toast(errMsg(error)); toast('Valor actualizado'); correr(() => cardPlata(activas, ultimoDia));
-  };
+  });
+  el.querySelectorAll('[data-h]').forEach(b => b.onclick = () => {
+    const e = empById(b.dataset.h), h = horario[e.id] || {};
+    dlg.innerHTML = `<div class="row"><h2 class="grow" style="margin:0">Horario normal de ${esc(e.nombre)}</h2><button class="btn" id="dx">✕</button></div>
+      <p class="muted" style="margin:8px 0 12px">Horas que trabaja cada día de la semana. Dejá vacío los días que no va.</p>
+      <form id="fh"><div class="hgrid">${DIAS.map((d,i) => `<label class="f">${d}<input type="text" inputmode="decimal" name="d${i}" value="${h[i] ? String(h[i]).replace('.',',') : ''}" placeholder="—"></label>`).join('')}</div>
+      <p class="st-err" id="he"></p><div class="row"><button class="btn pri">Guardar</button><button type="button" class="btn" id="hc">Cancelar</button></div></form>`;
+    dlg.showModal();
+    dlg.querySelector('#dx').onclick = dlg.querySelector('#hc').onclick = () => dlg.close();
+    dlg.querySelector('#fh').onsubmit = async ev => {
+      ev.preventDefault(); const f = ev.target, nuevo = {};
+      for(let i=0; i<7; i++){
+        const raw = f['d'+i].value.trim(); if(!raw) continue;
+        const n = Number(raw.replace(',','.'));
+        if(!(n > 0 && n <= 16)){ dlg.querySelector('#he').textContent = `Revisá las horas del ${DIAS[i]}`; return; }
+        nuevo[i] = n;
+      }
+      const { error } = await sb.from('rec_sueldo_privado').upsert({ empleada_id:e.id, horario:nuevo, actualizado:new Date().toISOString() });
+      if(error){ dlg.querySelector('#he').textContent = errMsg(error); return; }
+      dlg.close(); toast('Horario guardado'); correr(() => cardPlata(activas, ultimoDia));
+    };
+  });
 }
 function correr(fn){ const p = fn(); if(p && p.catch) p.catch(e => { app.innerHTML = `<div class="card"><p class="st-err">Error: ${esc(errMsg(e))}</p></div>`; }); }
 
