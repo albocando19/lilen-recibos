@@ -838,10 +838,14 @@ async function cardPlata(activas, ultimoDia){
   let semanas = 0; for(let f = HA.mes; f <= ultimoDia; f = addDays(f,1)) if(dow(f) === 5) semanas++;
   const PER = { semana:'por semana', dia:'por día', mes:'por mes' };
   const delMes = g => g.monto == null ? null : g.periodo==='mes' ? Number(g.monto) : g.periodo==='dia' ? Number(g.monto) * Number(g.dias_semana || 0) * semanas : Number(g.monto) * semanas;
-  const otros = gas.data.filter(g => g.activo);
-  const totOtros = otros.reduce((a,g) => a + (delMes(g) || 0), 0);
+  const otros = gas.data.filter(g => g.activo && g.tipo !== 'fijo'), fijos = gas.data.filter(g => g.activo && g.tipo === 'fijo');
+  const sumaG = l => l.reduce((a,g) => a + (delMes(g) || 0), 0);
+  const totOtros = sumaG(otros), totFijos = sumaG(fijos);
+  const filaG = g => `<tr><td><button class="linkbtn" style="font-size:15px;color:var(--ink);font-weight:600" data-g="${g.id}">${esc(g.nombre)}</button></td>
+        <td class="muted">${g.monto != null ? `${pesos(g.monto)} ${PER[g.periodo]}${g.dias_semana ? ` · ${String(Number(g.dias_semana)).replace('.',',')} día${Number(g.dias_semana)===1?'':'s'}/semana` : ''}` : '<span class="st-err">Falta el monto</span>'}${g.nota ? ` · ${esc(g.nota)}` : ''}</td>
+        <td class="num">${delMes(g) != null ? `<b>${pesos(delMes(g))}</b>` : '—'}</td></tr>`;
   const totEmp = filas.reduce((a,x) => a + tot(x), 0);
-  el.innerHTML = `<div class="card plata"><div class="row"><h2 class="grow" style="margin:0">Sueldos y extras · ${cap(pLong(HA.mes))}</h2><span class="pill" style="border-color:var(--oro);color:var(--pend-ink)">Solo vos</span></div>
+  el.innerHTML = `<div class="card plata"><div class="row"><h2 class="grow" style="margin:0">Sueldos y gastos · ${cap(pLong(HA.mes))}</h2><span class="pill" style="border-color:var(--oro);color:var(--pend-ink)">Solo vos</span></div>
     <div class="row" style="margin-top:10px;gap:6px 14px">
       <span><span class="muted">Hora normal:</span> <b>${pesos(vn)}</b> <button class="btn mini" data-v="valor_hora_normal">Cambiar</button></span>
       <span><span class="muted">Hora extra:</span> <b>${pesos(vh)}</b> <button class="btn mini" data-v="valor_hora_extra">Cambiar</button></span></div>
@@ -858,13 +862,18 @@ async function cardPlata(activas, ultimoDia){
     <h3 style="margin:18px 0 0">Otro personal (sin usuario)</h3>
     <div class="tablewrap" style="margin-top:6px"><table>
       <tr><th>Nombre</th><th>Arreglo</th><th class="num">Este mes</th></tr>
-      ${otros.map(g => `<tr><td><button class="linkbtn" style="font-size:15px;color:var(--ink);font-weight:600" data-g="${g.id}">${esc(g.nombre)}</button></td>
-        <td class="muted">${g.monto != null ? `${pesos(g.monto)} ${PER[g.periodo]}${g.dias_semana ? ` · ${String(Number(g.dias_semana)).replace('.',',')} día${Number(g.dias_semana)===1?'':'s'}/semana` : ''}` : '<span class="st-err">Falta el monto</span>'}${g.nota ? ` · ${esc(g.nota)}` : ''}</td>
-        <td class="num">${delMes(g) != null ? `<b>${pesos(delMes(g))}</b>` : '—'}</td></tr>`).join('')}
+      ${otros.map(filaG).join('')}
       <tr class="tot"><td colspan="2">Total otro personal <span class="muted" style="font-weight:400">(${semanas} semanas)</span></td><td class="num">${pesos(totOtros)}</td></tr>
     </table></div>
-    <p style="margin:8px 0 0"><button class="btn mini" data-g="">+ Agregar persona</button></p>
-    <div class="granTotal"><span>Total de personal del mes</span><b>${pesos(totEmp + totOtros)}</b></div>
+    <h3 style="margin:18px 0 0">Gastos fijos</h3>
+    <div class="tablewrap" style="margin-top:6px"><table>
+      <tr><th>Gasto</th><th>Arreglo</th><th class="num">Este mes</th></tr>
+      ${fijos.map(filaG).join('')}
+      <tr class="tot"><td colspan="2">Total gastos fijos</td><td class="num">${pesos(totFijos)}</td></tr>
+    </table></div>
+    <p style="margin:8px 0 0"><button class="btn mini" data-g="">+ Agregar persona o gasto</button></p>
+    <div class="granTotal" style="background:#fff"><span>Personal del mes</span><b style="font-size:19px">${pesos(totEmp + totOtros)}</b></div>
+    <div class="granTotal" style="margin-top:8px"><span>Total de gastos del mes</span><b>${pesos(totEmp + totOtros + totFijos)}</b></div>
     ${T('rev') ? `<p class="muted" style="margin:4px 0 0;font-size:.9rem;text-align:right">+ ${pesos(T('rev')*vh)} si se aprueban las extras por revisar</p>` : ''}
     <p class="muted" style="font-size:.85rem;margin:10px 0 0">Otro personal: las semanas del mes se cuentan por sábados (pago semanal). Aproximado. Sueldo normal = días de su horario en el mes × horas × valor de la hora normal (no descuenta feriados ni faltas). Extras = horas aprobadas × valor de la hora extra. No incluye cargas sociales ni aguinaldo.</p></div>`;
   el.querySelectorAll('[data-v]').forEach(b => b.onclick = async () => {
@@ -878,9 +887,10 @@ async function cardPlata(activas, ultimoDia){
   });
   el.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
     const g = gas.data.find(x => x.id === b.dataset.g) || null;
-    dlg.innerHTML = `<div class="row"><h2 class="grow" style="margin:0">${g ? esc(g.nombre) : 'Agregar persona'}</h2><button class="btn" id="dx">✕</button></div>
+    dlg.innerHTML = `<div class="row"><h2 class="grow" style="margin:0">${g ? esc(g.nombre) : 'Agregar persona o gasto'}</h2><button class="btn" id="dx">✕</button></div>
       <form id="fg" class="row" style="flex-direction:column;align-items:stretch;margin-top:12px">
         <label class="f">Nombre<input type="text" name="nombre" maxlength="80" required value="${esc(g?.nombre)}"></label>
+        <label class="f">Tipo<select name="tipo"><option value="personal" ${g?.tipo!=='fijo'?'selected':''}>Persona (otro personal)</option><option value="fijo" ${g?.tipo==='fijo'?'selected':''}>Gasto fijo (alquiler, contador…)</option></select></label>
         <div class="row"><label class="f grow">Monto ($)<input type="text" name="monto" inputmode="numeric" placeholder="100000" value="${g?.monto != null ? Number(g.monto) : ''}"></label>
           <label class="f grow">Cada<select name="periodo">${Object.entries(PER).map(([k,t]) => `<option value="${k}" ${(g?.periodo||'semana')===k?'selected':''}>${t.replace('por ','')}</option>`).join('')}</select></label></div>
         <label class="f">Días que viene por semana<input type="text" name="dias" inputmode="decimal" placeholder="Ej.: 2" value="${g?.dias_semana != null ? Number(g.dias_semana) : ''}"></label>
@@ -894,7 +904,7 @@ async function cardPlata(activas, ultimoDia){
     dlg.querySelector('#dx').onclick = dlg.querySelector('#gc').onclick = () => dlg.close();
     const gb = dlg.querySelector('#gb');
     if(gb) gb.onclick = async () => {
-      if(!confirm(`¿Quitar a ${g.nombre} de los gastos?`)) return;
+      if(!confirm(`¿Quitar "${g.nombre}" de los gastos?`)) return;
       const { error } = await sb.from('rec_gastos_privado').update({ activo:false }).eq('id', g.id);
       if(error){ ge.textContent = errMsg(error); return; }
       dlg.close(); toast('Quitada'); correr(() => cardPlata(activas, ultimoDia));
@@ -902,7 +912,7 @@ async function cardPlata(activas, ultimoDia){
     dlg.querySelector('#fg').onsubmit = async ev => {
       ev.preventDefault(); const f = ev.target;
       const num = v => { v = String(v).trim().replace(/[$.\s]/g,'').replace(',','.'); return v === '' ? null : Number(v); };
-      const row = { nombre:f.nombre.value.trim(), monto:num(f.monto.value), periodo:f.periodo.value, dias_semana:num(f.dias.value), nota:f.nota.value.trim() || null };
+      const row = { nombre:f.nombre.value.trim(), tipo:f.tipo.value, monto:num(f.monto.value), periodo:f.periodo.value, dias_semana:num(f.dias.value), nota:f.nota.value.trim() || null };
       if(!row.nombre){ ge.textContent = 'Poné el nombre'; return; }
       if(row.monto != null && !(row.monto >= 0)){ ge.textContent = 'Revisá el monto'; return; }
       if(row.dias_semana != null && !(row.dias_semana >= 0 && row.dias_semana <= 7)){ ge.textContent = 'Los días por semana van de 0 a 7'; return; }
