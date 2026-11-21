@@ -136,6 +136,8 @@ dialog::backdrop{background:rgba(34,28,31,.35)}
 .hx-r{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .hx-r .btn{padding:8px 0;font-size:14px}
 .plata{border-color:var(--oro-suave);background:#fffdf7}
+.granTotal{display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;padding:12px 14px;border-radius:12px;background:var(--rosa);border:1px solid var(--rosa-borde)}
+.granTotal b{font-size:24px;color:var(--accent)}
 .btn.mini{padding:3px 10px;font-size:13px}
 .linkbtn{background:none;border:0;padding:0;color:var(--accent);font-size:12.5px;cursor:pointer;text-align:left}
 .linkbtn:hover{text-decoration:underline}
@@ -803,13 +805,14 @@ const DUENO = 'albocando@gmail.com';
 const pesos = n => '$' + Math.round(n).toLocaleString('es-AR');
 async function cardPlata(activas, ultimoDia){
   const el = document.getElementById('plata'); if(!el) return;
-  const [cfg, hs, suel] = await Promise.all([
+  const [cfg, hs, suel, gas] = await Promise.all([
     sb.from('rec_config_privada').select('clave,valor'),
     sb.from('rec_horas').select('empleada_id,horas,estado').gte('fecha', HA.mes).lte('fecha', ultimoDia).neq('estado','rechazado'),
-    sb.from('rec_sueldo_privado').select('empleada_id,horario')
+    sb.from('rec_sueldo_privado').select('empleada_id,horario'),
+    sb.from('rec_gastos_privado').select('*').order('creado')
   ]);
   if(cfg.error || !cfg.data || !cfg.data.length) return; // si no es el dueño, la base no devuelve nada
-  if(hs.error) throw hs.error; if(suel.error) throw suel.error;
+  if(hs.error) throw hs.error; if(suel.error) throw suel.error; if(gas.error) throw gas.error;
   const c = {}; cfg.data.forEach(x => c[x.clave] = Number(x.valor));
   const vh = c.valor_hora_extra ?? 0, vn = c.valor_hora_normal ?? 0;
   const horario = {}; suel.data.forEach(x => horario[x.empleada_id] = x.horario || {});
@@ -831,6 +834,13 @@ async function cardPlata(activas, ultimoDia){
   });
   const T = k => filas.reduce((a,x) => a + (x[k] || 0), 0);
   const tot = x => (x.sueldo || 0) + x.apr*vh;
+  // Personal sin usuario: se paga por semana (cada sábado), por día o por mes
+  let semanas = 0; for(let f = HA.mes; f <= ultimoDia; f = addDays(f,1)) if(dow(f) === 5) semanas++;
+  const PER = { semana:'por semana', dia:'por día', mes:'por mes' };
+  const delMes = g => g.monto == null ? null : g.periodo==='mes' ? Number(g.monto) : g.periodo==='dia' ? Number(g.monto) * Number(g.dias_semana || 0) * semanas : Number(g.monto) * semanas;
+  const otros = gas.data.filter(g => g.activo);
+  const totOtros = otros.reduce((a,g) => a + (delMes(g) || 0), 0);
+  const totEmp = filas.reduce((a,x) => a + tot(x), 0);
   el.innerHTML = `<div class="card plata"><div class="row"><h2 class="grow" style="margin:0">Sueldos y extras · ${cap(pLong(HA.mes))}</h2><span class="pill" style="border-color:var(--oro);color:var(--pend-ink)">Solo vos</span></div>
     <div class="row" style="margin-top:10px;gap:6px 14px">
       <span><span class="muted">Hora normal:</span> <b>${pesos(vn)}</b> <button class="btn mini" data-v="valor_hora_normal">Cambiar</button></span>
@@ -845,7 +855,18 @@ async function cardPlata(activas, ultimoDia){
         <td class="num">${x.rev ? `${pesos(x.rev*vh)}<br><small class="muted">${fHs(x.rev)}</small>` : '<span class="muted">—</span>'}</td></tr>`).join('')}
       <tr class="tot"><td>Total</td><td class="num">${pesos(T('sueldo'))}</td><td class="num">${pesos(T('apr')*vh)}</td><td class="num">${pesos(filas.reduce((a,x) => a + tot(x), 0))}</td><td class="num">${T('rev') ? pesos(T('rev')*vh) : '—'}</td></tr>
     </table></div>
-    <p class="muted" style="font-size:.85rem;margin:10px 0 0">Aproximado. Sueldo normal = días de su horario en el mes × horas × valor de la hora normal (no descuenta feriados ni faltas). Extras = horas aprobadas × valor de la hora extra. No incluye cargas sociales ni aguinaldo.</p></div>`;
+    <h3 style="margin:18px 0 0">Otro personal (sin usuario)</h3>
+    <div class="tablewrap" style="margin-top:6px"><table>
+      <tr><th>Nombre</th><th>Arreglo</th><th class="num">Este mes</th></tr>
+      ${otros.map(g => `<tr><td><button class="linkbtn" style="font-size:15px;color:var(--ink);font-weight:600" data-g="${g.id}">${esc(g.nombre)}</button></td>
+        <td class="muted">${g.monto != null ? `${pesos(g.monto)} ${PER[g.periodo]}${g.dias_semana ? ` · ${String(Number(g.dias_semana)).replace('.',',')} día${Number(g.dias_semana)===1?'':'s'}/semana` : ''}` : '<span class="st-err">Falta el monto</span>'}${g.nota ? ` · ${esc(g.nota)}` : ''}</td>
+        <td class="num">${delMes(g) != null ? `<b>${pesos(delMes(g))}</b>` : '—'}</td></tr>`).join('')}
+      <tr class="tot"><td colspan="2">Total otro personal <span class="muted" style="font-weight:400">(${semanas} semanas)</span></td><td class="num">${pesos(totOtros)}</td></tr>
+    </table></div>
+    <p style="margin:8px 0 0"><button class="btn mini" data-g="">+ Agregar persona</button></p>
+    <div class="granTotal"><span>Total de personal del mes</span><b>${pesos(totEmp + totOtros)}</b></div>
+    ${T('rev') ? `<p class="muted" style="margin:4px 0 0;font-size:.9rem;text-align:right">+ ${pesos(T('rev')*vh)} si se aprueban las extras por revisar</p>` : ''}
+    <p class="muted" style="font-size:.85rem;margin:10px 0 0">Otro personal: las semanas del mes se cuentan por sábados (pago semanal). Aproximado. Sueldo normal = días de su horario en el mes × horas × valor de la hora normal (no descuenta feriados ni faltas). Extras = horas aprobadas × valor de la hora extra. No incluye cargas sociales ni aguinaldo.</p></div>`;
   el.querySelectorAll('[data-v]').forEach(b => b.onclick = async () => {
     const clave = b.dataset.v, actual = c[clave] ?? 0;
     const v = prompt(clave==='valor_hora_normal' ? 'Valor de la hora normal (en pesos):' : 'Valor de la hora extra (en pesos):', String(actual));
@@ -854,6 +875,42 @@ async function cardPlata(activas, ultimoDia){
     if(!(n >= 0)) return toast('Poné un número válido');
     const { error } = await sb.from('rec_config_privada').upsert({ clave, valor:n, actualizado:new Date().toISOString() });
     if(error) return toast(errMsg(error)); toast('Valor actualizado'); correr(() => cardPlata(activas, ultimoDia));
+  });
+  el.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
+    const g = gas.data.find(x => x.id === b.dataset.g) || null;
+    dlg.innerHTML = `<div class="row"><h2 class="grow" style="margin:0">${g ? esc(g.nombre) : 'Agregar persona'}</h2><button class="btn" id="dx">✕</button></div>
+      <form id="fg" class="row" style="flex-direction:column;align-items:stretch;margin-top:12px">
+        <label class="f">Nombre<input type="text" name="nombre" maxlength="80" required value="${esc(g?.nombre)}"></label>
+        <div class="row"><label class="f grow">Monto ($)<input type="text" name="monto" inputmode="numeric" placeholder="100000" value="${g?.monto != null ? Number(g.monto) : ''}"></label>
+          <label class="f grow">Cada<select name="periodo">${Object.entries(PER).map(([k,t]) => `<option value="${k}" ${(g?.periodo||'semana')===k?'selected':''}>${t.replace('por ','')}</option>`).join('')}</select></label></div>
+        <label class="f">Días que viene por semana<input type="text" name="dias" inputmode="decimal" placeholder="Ej.: 2" value="${g?.dias_semana != null ? Number(g.dias_semana) : ''}"></label>
+        <label class="f">Nota (opcional)<input type="text" name="nota" maxlength="300" value="${esc(g?.nota)}"></label>
+        <p class="st-err" id="ge" style="margin:0"></p>
+        <div class="row"><button class="btn pri">Guardar</button><button type="button" class="btn" id="gc">Cancelar</button>
+          ${g ? '<span class="grow"></span><button type="button" class="btn danger" id="gb">Quitar</button>' : ''}</div>
+      </form>`;
+    dlg.showModal();
+    const ge = dlg.querySelector('#ge');
+    dlg.querySelector('#dx').onclick = dlg.querySelector('#gc').onclick = () => dlg.close();
+    const gb = dlg.querySelector('#gb');
+    if(gb) gb.onclick = async () => {
+      if(!confirm(`¿Quitar a ${g.nombre} de los gastos?`)) return;
+      const { error } = await sb.from('rec_gastos_privado').update({ activo:false }).eq('id', g.id);
+      if(error){ ge.textContent = errMsg(error); return; }
+      dlg.close(); toast('Quitada'); correr(() => cardPlata(activas, ultimoDia));
+    };
+    dlg.querySelector('#fg').onsubmit = async ev => {
+      ev.preventDefault(); const f = ev.target;
+      const num = v => { v = String(v).trim().replace(/[$.\s]/g,'').replace(',','.'); return v === '' ? null : Number(v); };
+      const row = { nombre:f.nombre.value.trim(), monto:num(f.monto.value), periodo:f.periodo.value, dias_semana:num(f.dias.value), nota:f.nota.value.trim() || null };
+      if(!row.nombre){ ge.textContent = 'Poné el nombre'; return; }
+      if(row.monto != null && !(row.monto >= 0)){ ge.textContent = 'Revisá el monto'; return; }
+      if(row.dias_semana != null && !(row.dias_semana >= 0 && row.dias_semana <= 7)){ ge.textContent = 'Los días por semana van de 0 a 7'; return; }
+      if(row.periodo === 'dia' && !row.dias_semana){ ge.textContent = 'Si cobra por día, poné cuántos días viene por semana'; return; }
+      const { error } = g ? await sb.from('rec_gastos_privado').update(row).eq('id', g.id) : await sb.from('rec_gastos_privado').insert(row);
+      if(error){ ge.textContent = errMsg(error); return; }
+      dlg.close(); toast('Guardado'); correr(() => cardPlata(activas, ultimoDia));
+    };
   });
   el.querySelectorAll('[data-h]').forEach(b => b.onclick = () => {
     const e = empById(b.dataset.h), h = horario[e.id] || {};
