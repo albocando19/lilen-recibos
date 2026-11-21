@@ -135,6 +135,8 @@ dialog::backdrop{background:rgba(34,28,31,.35)}
 .hx-b{min-width:56px;font-size:24px;font-weight:600;padding:0}
 .hx-r{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .hx-r .btn{padding:8px 0;font-size:14px}
+.plata{border-color:var(--oro-suave);background:#fffdf7}
+tr.tot td{font-weight:700;border-top:2px solid var(--oro-suave);border-bottom:0}
 .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600;border:1px solid}
 .empchips{display:flex;gap:6px;flex-wrap:wrap}
 .empchips button{border:1px solid var(--rosa-borde);background:#fff;border-radius:999px;padding:7px 14px;cursor:pointer;font-size:15px}
@@ -761,6 +763,7 @@ async function vHorarios(){
       <div class="stat"><b>${fHs(sumaHs(rs.filter(r => r.estado==='cargado')))}</b><span class="muted">Extras por revisar</span></div>
       <div class="stat"><b>${fHs(sumaHs(rs))}</b><span class="muted">Total cargado</span></div>
       <div class="stat"><b>${rs.length}</b><span class="muted">Días con extras</span></div></div>
+    <div id="plata"></div>
     ${rs.length ? `<div class="card"><h2>Detalle del mes</h2><div class="tablewrap"><table>
       <tr><th>Día</th><th class="num">Extras</th><th>Estado</th><th>Nota</th></tr>
       ${rs.map(r => `<tr><td>${DIAS[dow(r.fecha)]} ${r.fecha.slice(8)}/${r.fecha.slice(5,7)}</td><td class="num"><b>${fHs(r.horas)}</b></td>
@@ -771,6 +774,7 @@ async function vHorarios(){
   document.getElementById('mn').onclick = () => { HA.mes = sumarMes(HA.mes,1); correr(vHorarios); };
   app.querySelectorAll('.cal-d:not(:disabled)').forEach(b => b.onclick = () =>
     dlgDia(b.dataset.f, horas[b.dataset.f], { eid:HA.emp, admin:true, onSave:() => correr(vHorarios) }));
+  if(String(S.email).toLowerCase() === DUENO) correr(() => cardPlata(activas, ultimoDia));
   const at = document.getElementById('aprTodo');
   if(at) at.onclick = async () => {
     if(!confirm(`¿Aprobar los ${porRevisar} días por revisar de ${e.nombre}?`)) return;
@@ -787,6 +791,43 @@ async function vHorarios(){
     const blob = new Blob(['﻿' + filas.map(f => f.map(q).join(';')).join('\r\n')], { type:'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = `extras_${winAnsi(e.nombre).replace(/\W+/g,'_').toLowerCase()}_${HA.mes.slice(0,7)}.csv`; a.click();
+  };
+}
+// Plata en horas extras: solo para el dueño (la base solo le devuelve el valor a él)
+const DUENO = 'albocando@gmail.com';
+const pesos = n => '$' + Math.round(n).toLocaleString('es-AR');
+async function cardPlata(activas, ultimoDia){
+  const el = document.getElementById('plata'); if(!el) return;
+  const [cfg, hs] = await Promise.all([
+    sb.from('rec_config_privada').select('valor').eq('clave','valor_hora_extra').maybeSingle(),
+    sb.from('rec_horas').select('empleada_id,horas,estado').gte('fecha', HA.mes).lte('fecha', ultimoDia).neq('estado','rechazado')
+  ]);
+  if(cfg.error || !cfg.data) return; // si no es el dueño, no hay nada que mostrar
+  if(hs.error) throw hs.error;
+  const vh = Number(cfg.data.valor);
+  const filas = activas.map(e => {
+    const mias = hs.data.filter(x => x.empleada_id === e.id);
+    const apr = sumaHs(mias.filter(x => x.estado==='aprobado')), rev = sumaHs(mias.filter(x => x.estado==='cargado'));
+    return { e, apr, rev };
+  }).filter(x => x.apr || x.rev);
+  const tA = filas.reduce((a,x) => a + x.apr, 0), tR = filas.reduce((a,x) => a + x.rev, 0);
+  el.innerHTML = `<div class="card plata"><div class="row"><h2 class="grow" style="margin:0">Plata en extras · ${cap(pLong(HA.mes))}</h2><span class="pill" style="border-color:var(--oro);color:var(--pend-ink)">Solo vos</span></div>
+    <div class="row" style="margin-top:10px"><span class="muted">Valor de la hora extra:</span> <b id="vh">${pesos(vh)}</b> <button class="btn" id="vhEd" style="padding:4px 10px;font-size:13px">Cambiar</button></div>
+    ${filas.length ? `<div class="tablewrap" style="margin-top:8px"><table>
+      <tr><th>Empleada</th><th class="num">Aprobadas</th><th class="num">A pagar</th><th class="num">Por revisar</th><th class="num">Si se aprueban</th></tr>
+      ${filas.map(x => `<tr${x.e.id===HA.emp?' style="background:var(--rosa)"':''}><td>${esc(x.e.nombre)}</td><td class="num">${fHs(x.apr)}</td><td class="num"><b>${pesos(x.apr*vh)}</b></td>
+        <td class="num">${x.rev ? fHs(x.rev) : '—'}</td><td class="num">${x.rev ? pesos(x.rev*vh) : '—'}</td></tr>`).join('')}
+      <tr class="tot"><td>Total</td><td class="num">${fHs(tA)}</td><td class="num"><b>${pesos(tA*vh)}</b></td><td class="num">${tR ? fHs(tR) : '—'}</td><td class="num">${tR ? pesos(tR*vh) : '—'}</td></tr>
+    </table></div>
+    <p class="muted" style="font-size:.85rem;margin:10px 0 0">Aproximado: horas × valor de la hora. No incluye recargos ni cargas sociales.</p>`
+    : '<p class="muted" style="margin:10px 0 0">Nadie cargó horas extras este mes.</p>'}</div>`;
+  document.getElementById('vhEd').onclick = async () => {
+    const v = prompt('Valor de la hora extra (en pesos):', String(vh));
+    if(v == null) return;
+    const n = Number(String(v).replace(/[$.\s]/g,'').replace(',','.'));
+    if(!(n >= 0)) return toast('Poné un número válido');
+    const { error } = await sb.from('rec_config_privada').update({ valor:n, actualizado:new Date().toISOString() }).eq('clave','valor_hora_extra');
+    if(error) return toast(errMsg(error)); toast('Valor actualizado'); correr(() => cardPlata(activas, ultimoDia));
   };
 }
 function correr(fn){ const p = fn(); if(p && p.catch) p.catch(e => { app.innerHTML = `<div class="card"><p class="st-err">Error: ${esc(errMsg(e))}</p></div>`; }); }
